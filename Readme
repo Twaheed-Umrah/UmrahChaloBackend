@@ -1,0 +1,177 @@
+# Umrah Chalo Backend
+
+A comprehensive Django REST Framework backend for connecting pilgrims with verified Hajj/Umrah service providers.
+
+## Features
+
+- **Multi-role Authentication**: Users, Service Providers, Super Admin
+- **Service Catalogue**: Visa, Hotels, Transport, Food, Air Tickets, Umrah Packages, etc.
+- **Lead Distribution**: Automated lead sharing to relevant providers
+- **Subscription Management**: Tiered subscription plans with automatic renewals
+- **Real-time Notifications**: Email, SMS, and Push notifications
+- **Advanced Filtering**: Date, price, rating, popularity filters
+- **Analytics Dashboard**: Comprehensive insights for admins
+- **Payment Integration**: Razorpay and Stripe support
+
+## Tech Stack
+
+- **Framework**: Django 4.2.7 + Django REST Framework
+- **Database**: PostgreSQL
+- **Cache/Queue**: Redis + Celery
+- **Authentication**: JWT + OAuth2
+- **Notifications**: Twilio (SMS) + FCM (Push) + Email
+- **Payments**: Razorpay + Stripe
+- **Documentation**: drf-spectacular (OpenAPI)
+
+## Project Structure
+
+```
+UmrahChaloBackend/
+├── manage.py
+├── requirements.txt
+├── .env
+├── .gitignore
+├── README.md
+├── umrahchalo/          # Main Django project
+├── core/                # Core utilities and base models
+├── apps/                # All Django apps
+│   ├── authentication/
+│   ├── users/
+│   ├── providers/
+│   ├── services/
+│   ├── packages/
+│   ├── leads/
+│   ├── subscriptions/
+│   ├── notifications/
+│   └── analytics/
+├── media/               # User uploads
+└── static/              # Static files
+```
+
+## Installation
+
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd UmrahChaloBackend
+   ```
+
+2. **Create virtual environment**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+3. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Environment setup**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your configuration
+   ```
+
+5. **Database setup**
+   ```bash
+   python manage.py makemigrations
+   python manage.py migrate
+   python manage.py createsuperuser
+   ```
+
+6. **Run the server**
+   ```bash
+   python manage.py runserver
+   ```
+
+## API Documentation
+
+- **Development**: http://localhost:8000/api/docs/
+- **Production**: https://your-domain.com/api/docs/
+
+## Key Endpoints
+
+### Authentication
+- `POST /api/auth/register/` - User registration
+- `POST /api/auth/login/` - User login
+- `POST /api/auth/refresh/` - Refresh JWT token
+
+### Services & Packages
+- `GET /api/services/` - List all services
+- `GET /api/packages/` - List all packages
+- `POST /api/packages/book/` - Book a package (create lead)
+
+### Provider Dashboard
+- `GET /api/providers/dashboard/` - Provider dashboard
+- `GET /api/providers/leads/` - Provider leads
+- `POST /api/providers/packages/` - Create package
+
+### Admin Panel
+- `GET /api/admin/analytics/` - Analytics dashboard
+- `GET /api/admin/providers/` - Manage providers
+- `POST /api/admin/verify-provider/` - Verify provider
+
+## Environment Variables
+
+See `.env` file for all required environment variables including:
+- Database configuration
+- Redis/Celery settings
+- Email/SMS providers
+- Payment gateway credentials
+- JWT settings
+
+## Background Tasks
+
+This project uses Celery for background tasks:
+
+```bash
+# Start Celery worker
+celery -A umrahchalo worker -l info
+
+# Start Celery beat (scheduler)
+celery -A umrahchalo beat -l info
+```
+
+## Testing
+
+Run tests with pytest:
+```bash
+pytest
+```
+
+Run with coverage:
+```bash
+coverage run -m pytest
+coverage report
+```
+
+## Deployment
+
+### Docker (Recommended)
+```bash
+docker-compose up -d
+```
+
+### Manual Deployment
+1. Set `DEBUG=False` in production
+2. Configure proper database
+3. Set up Nginx/Apache reverse proxy
+4. Configure SSL certificates
+5. Set up monitoring and logging
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests
+5. Submit a pull request
+
+## License
+
+This project is licensed under the MIT License.
+
+## Support
+
+For support, email support@umrahchalo.com or create an issue in the repository.

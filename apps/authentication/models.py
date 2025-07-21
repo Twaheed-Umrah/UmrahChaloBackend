@@ -1,0 +1,275 @@
+from django.contrib.auth.models import AbstractUser
+from django.db import models
+from django.utils import timezone
+from django.core.validators import RegexValidator
+import uuid
+from django.conf import settings
+from apps.core.models import BaseModel, UserRole
+class User(AbstractUser):
+    """
+    Custom User model extending AbstractUser
+    """
+    USER_TYPES = [
+    (UserRole.PILGRIM, UserRole.PILGRIM.label),
+    (UserRole.PROVIDER, UserRole.PROVIDER.label),
+    (UserRole.SUPER_ADMIN, UserRole.SUPER_ADMIN.label),
+   ]
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    full_name = models.CharField(max_length=255, blank=True, null=True)
+    email = models.EmailField(unique=True)
+    phone = models.CharField(max_length=15, blank=True, null=True)
+    user_type = models.CharField(max_length=20, choices=USER_TYPES, default='pilgrim')
+    is_verified = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = ['username']  # Needed for createsuperuser
+
+    class Meta:
+        db_table = 'auth_user'
+        verbose_name = 'User'
+        verbose_name_plural = 'Users'
+
+    def __str__(self):
+        return f"{self.email} - {self.user_type}"
+
+    def save(self, *args, **kwargs):
+        if not self.username and self.full_name:
+            base_username = self.full_name.strip().lower().replace(" ", "_")
+            username_candidate = base_username
+            counter = 1
+            while User.objects.filter(username=username_candidate).exists():
+                username_candidate = f"{base_username}_{counter}"
+                counter += 1
+            self.username = username_candidate
+        super().save(*args, **kwargs)
+        
+class OTPVerification(models.Model):
+    """
+    Model to handle OTP verification for users
+    """
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='otp_verifications')
+    otp = models.CharField(max_length=6)
+    purpose = models.CharField(max_length=50, choices=[
+        ('email_verification', 'Email Verification'),
+        ('phone_verification', 'Phone Verification'),
+        ('password_reset', 'Password Reset'),
+        ('login', 'Login'),
+    ])
+    is_used = models.BooleanField(default=False)
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'otp_verifications'
+        verbose_name = 'OTP Verification'
+        verbose_name_plural = 'OTP Verifications'
+    
+    def __str__(self):
+        return f"OTP for {self.user.email} - {self.purpose}"
+    
+    def is_expired(self):
+        return timezone.now() > self.expires_at
+    
+    def is_valid(self):
+        return not self.is_used and not self.is_expired()
+
+
+class LoginAttempt(models.Model):
+    """
+    Model to track login attempts for security
+    """
+    email = models.EmailField()
+    ip_address = models.GenericIPAddressField()
+    user_agent = models.TextField(blank=True)
+    success = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'login_attempts'
+        verbose_name = 'Login Attempt'
+        verbose_name_plural = 'Login Attempts'
+    
+    def __str__(self):
+        return f"Login attempt for {self.email} - {'Success' if self.success else 'Failed'}"
+
+
+class UserSession(models.Model):
+    """
+    Model to track user sessions
+    """
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='sessions')
+    session_key = models.CharField(max_length=40)
+    device_info = models.TextField(blank=True)
+    ip_address = models.GenericIPAddressField()
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_activity = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'user_sessions'
+        verbose_name = 'User Session'
+        verbose_name_plural = 'User Sessions'
+    
+    def __str__(self):
+        return f"Session for {self.user.email}"
+
+
+class ServiceProviderProfile(models.Model):
+    """Detailed Service Provider profile for verification and business operations"""
+    
+    BUSINESS_TYPES = (
+    ('individual', 'Individual'),
+    ('company', 'Company'),
+    ('agency', 'Travel Agency'),
+    ('visa', 'Visa'),
+    ('hotels', 'Hotels'),
+    ('transport', 'Transport'),
+    ('food', 'Food'),
+    ('laundry', 'Laundry'),
+    ('air_ticket_group_fare_umrah', 'Air Ticket Group Fare Umrah'),
+    ('umrah_guide', 'Umrah Guide'),
+    ('umrah_kit', 'Umrah Kit'),
+    ('jam_jam_water', 'Jam Jam Water'),
+    ('hajj_package', 'Hajj Package'),
+    ('umrah_packages', 'Umrah Packages'),
+)
+    
+    VERIFICATION_STATUS = (
+        ('pending', 'Pending'),
+        ('verified', 'Verified'),
+        ('rejected', 'Rejected'),
+    )
+    
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='service_provider_profile')
+    
+    # Business Information
+    business_name = models.CharField(max_length=255)
+    business_type = models.CharField(max_length=50, choices=BUSINESS_TYPES)
+    business_description = models.TextField(blank=True)
+    business_logo = models.ImageField(upload_to='business_logos/', null=True, blank=True)
+    
+    # Contact Information
+    business_email = models.EmailField()
+    business_phone = models.CharField(max_length=17)
+    business_address = models.TextField()
+    business_city = models.CharField(max_length=100)
+    business_state = models.CharField(max_length=100)
+    business_country = models.CharField(max_length=100)
+    business_pincode = models.CharField(max_length=10)
+    
+    # Legal Information
+    government_id_type = models.CharField(max_length=50)  # Aadhar, PAN, etc.
+    government_id_number = models.CharField(max_length=50)
+    government_id_document = models.FileField(upload_to='government_ids/')
+    gst_number = models.CharField(max_length=15, blank=True)
+    gst_certificate = models.FileField(upload_to='gst_certificates/', null=True, blank=True)
+    
+    # License Information
+    trade_license_number = models.CharField(max_length=100, null=True, blank=True)
+    trade_license_document = models.FileField(upload_to='trade_licenses/', null=True, blank=True)
+    
+    # Verification
+    verification_status = models.CharField(max_length=20, choices=VERIFICATION_STATUS, default='pending')
+    verification_notes = models.TextField(blank=True)
+    verified_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='verified_providers')
+    verified_at = models.DateTimeField(null=True, blank=True)
+    
+    # Stats for lead generation
+    total_packages = models.IntegerField(default=0)
+    total_leads = models.IntegerField(default=0)
+    total_bookings = models.IntegerField(default=0)
+    average_rating = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    total_reviews = models.IntegerField(default=0)
+    
+    # Settings
+    is_active = models.BooleanField(default=True)
+    is_featured = models.BooleanField(default=False)
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'serviceproviderprofiles'
+        verbose_name = 'serviceproviderprofiles'
+        verbose_name_plural = 'serviceproviderprofiles'
+    
+    def __str__(self):
+        return f"{self.business_name} - {self.user.email}"
+    
+    @property
+    def is_verified(self):
+        return self.verification_status == 'verified'
+    
+    def update_stats(self):
+        """Update provider statistics for lead generation metrics"""
+        from apps.packages.models import Package
+        from apps.leads.models import Lead
+        from apps.reviews.models import Review
+        
+        self.total_packages = Package.objects.filter(provider=self).count()
+        self.total_leads = Lead.objects.filter(provider=self).count()
+        
+        reviews = Review.objects.filter(provider=self)
+        if reviews.exists():
+            self.average_rating = reviews.aggregate(
+                avg_rating=models.Avg('rating')
+            )['avg_rating'] or 0.00
+            self.total_reviews = reviews.count()
+        
+        self.save()
+
+
+# REMOVED: PilgrimProfile - Basic User model is sufficient for pilgrims
+# Pilgrims only need: email, phone, user_type = 'pilgrim'
+# No additional profile model needed
+
+
+class SavedPackage(models.Model):
+    """Users can save packages for later reference"""
+    
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='saved_packages')
+    package = models.ForeignKey('packages.Package', on_delete=models.CASCADE)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'saved_packages'
+        verbose_name = 'Saved Package'
+        verbose_name_plural = 'Saved Packages'
+        unique_together = ['user', 'package']
+    
+    def __str__(self):
+        return f"{self.user.email} - {self.package.title}"
+
+
+class UserActivity(models.Model):
+    """Track user activities for lead generation analytics"""
+    
+    ACTIVITY_TYPES = (
+        ('login', 'Login'),
+        ('logout', 'Logout'),
+        ('view_package', 'View Package'),
+        ('inquiry_sent', 'Inquiry Sent'),
+        ('package_saved', 'Package Saved'),
+        ('search_performed', 'Search Performed'),
+    )
+    
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='activities')
+    activity_type = models.CharField(max_length=20, choices=ACTIVITY_TYPES)
+    description = models.TextField(blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'user_activities'
+        verbose_name = 'User Activity'
+        verbose_name_plural = 'User Activities'
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.user.email} - {self.get_activity_type_display()}"
