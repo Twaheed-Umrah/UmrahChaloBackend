@@ -8,7 +8,9 @@ from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from django.core.cache import cache
 from django.conf import settings
-
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 from .models import (
     ServiceCategory, ServiceImage, Service, ServiceAvailability, 
     ServiceFAQ, ServiceView, ServiceType, ServiceStatus
@@ -63,19 +65,31 @@ class ServiceCategoryViewSet(viewsets.ReadOnlyModelViewSet):
         serializer = ServiceListSerializer(page, many=True, context={'request': request})
         return paginator.get_paginated_response(serializer.data)
 
-class ServiceImageViewSet(viewsets.ReadOnlyModelViewSet):
+class ServiceImageViewSet(viewsets.ModelViewSet):
     """
-    ViewSet for Service Images (Read-only for providers, managed by admin)
+    ViewSet for Service Images:
+    - SuperAdmin/Admin can upload images
+    - Providers can view images
     """
     queryset = ServiceImage.objects.filter(is_active=True)
     serializer_class = ServiceImageSerializer
-    permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['category']
     search_fields = ['name', 'alt_text']
-    
+
     def get_queryset(self):
         return self.queryset.select_related('category')
+
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [IsAdminOrSuperAdmin()]
+        return [permissions.IsAuthenticated()]
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def service_type_choices(request):
+    choices = [{'value': choice.value, 'label': choice.label} for choice in ServiceType]
+    return Response(choices)
 
 class ServiceViewSet(viewsets.ModelViewSet):
     """

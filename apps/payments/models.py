@@ -1,7 +1,6 @@
 from django.db import models
 from django.contrib.auth import get_user_model
 from apps.subscriptions.models import Subscription
-import uuid
 from django.conf import settings
 
 User = get_user_model()
@@ -54,7 +53,7 @@ class Payment(models.Model):
         ('addon', 'Add-on'),
     )
     
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.AutoField(primary_key=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='payments')
     subscription = models.ForeignKey(Subscription, on_delete=models.CASCADE, related_name='payments', null=True, blank=True)
     payment_method = models.ForeignKey(PaymentMethod, on_delete=models.CASCADE)
@@ -134,7 +133,7 @@ class PaymentRefund(models.Model):
         ('admin_action', 'Admin Action'),
     )
     
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.AutoField(primary_key=True)
     payment = models.ForeignKey(Payment, on_delete=models.CASCADE, related_name='refunds')
     
     # Refund details
@@ -179,7 +178,7 @@ class PaymentTransaction(models.Model):
         ('fee', 'Fee'),
     )
     
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.AutoField(primary_key=True)
     payment = models.ForeignKey(Payment, on_delete=models.CASCADE, related_name='transactions')
     
     transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPE)
@@ -215,7 +214,7 @@ class PaymentWebhook(models.Model):
         ('ignored', 'Ignored'),
     )
     
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.AutoField(primary_key=True)
     payment_method = models.ForeignKey(PaymentMethod, on_delete=models.CASCADE)
     
     # Webhook details

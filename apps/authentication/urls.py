@@ -13,6 +13,9 @@ urlpatterns = [
         path('register/', views.UserRegistrationView.as_view(), name='user-registration'),
         path('login/', views.UserLoginView.as_view(), name='user-login'),
         path('logout/', views.LogoutView.as_view(), name='user-logout'),
+        path('location/update/', views.LocationUpdateView.as_view(), name='location-update'),
+        path('location/history/', views.user_location_history, name='location-history'),
+        path('providers/nearby/', views.get_nearby_providers, name='nearby-providers'),
         path('token/refresh/', views.CustomTokenRefreshView.as_view(), name='token-refresh'),
     ])),
     
@@ -82,7 +85,19 @@ urlpatterns = [
     
     # Admin
     path('admin/', include([
-        path('users/', views.UserManagementListView.as_view(), name='admin-user-list'),
+        path('service-providers/', 
+         views.ServiceProviderManagementListView.as_view(), 
+         name='admin-service-providers-list'),
+    
+    path('service-providers/<int:id>/', 
+         views.ServiceProviderManagementDetailView.as_view(), 
+         name='admin-service-provider-detail'),
+    
+    path('admin/service-providers/stats/', 
+         views.ServiceProviderStatsView.as_view(), 
+         name='admin-service-provider-stats'),
+        path('users/', views.PilgrimManagementListView.as_view(), name='admin-user-list'),
+        path('users/<int:id>/', views.PilgrimManagementDetailView.as_view(), name='pilgrim-detail'),
         path('users/bulk-action/', views.BulkUserActionView.as_view(), name='admin-bulk-action'),
         path('dashboard/', views.admin_dashboard_stats, name='admin-dashboard'),
     ])),

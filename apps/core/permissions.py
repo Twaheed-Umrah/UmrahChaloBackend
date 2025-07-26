@@ -21,8 +21,8 @@ class IsPilgrim(permissions.BasePermission):
     def has_permission(self, request, view):
         return (
             request.user.is_authenticated and
-            hasattr(request.user, 'profile') and
-            request.user.profile.role == UserRole.PILGRIM
+            
+            request.user.user_type == UserRole.PILGRIM
         )
 
 class IsServiceProvider(permissions.BasePermission):
@@ -32,8 +32,7 @@ class IsServiceProvider(permissions.BasePermission):
     def has_permission(self, request, view):
         return (
             request.user.is_authenticated and
-            hasattr(request.user, 'profile') and
-            request.user.profile.role == UserRole.PROVIDER
+            request.user.user_type == UserRole.PROVIDER
         )
 
 class IsAdmin(permissions.BasePermission):
@@ -43,8 +42,8 @@ class IsAdmin(permissions.BasePermission):
     def has_permission(self, request, view):
         return (
             request.user.is_authenticated and
-            hasattr(request.user, 'profile') and
-            request.user.profile.role == UserRole.ADMIN
+            
+            request.user.user_type == UserRole.ADMIN
         )
 
 class IsSuperAdmin(permissions.BasePermission):
@@ -54,8 +53,8 @@ class IsSuperAdmin(permissions.BasePermission):
     def has_permission(self, request, view):
         return (
             request.user.is_authenticated and
-            hasattr(request.user, 'profile') and
-            request.user.profile.role == UserRole.SUPER_ADMIN
+            
+            request.user.user_type == UserRole.SUPER_ADMIN
         )
 
 class IsAdminOrSuperAdmin(permissions.BasePermission):
@@ -65,8 +64,8 @@ class IsAdminOrSuperAdmin(permissions.BasePermission):
     def has_permission(self, request, view):
         return (
             request.user.is_authenticated and
-            hasattr(request.user, 'profile') and
-            request.user.profile.role in [UserRole.ADMIN, UserRole.SUPER_ADMIN]
+            
+            request.user.user_type in [UserRole.ADMIN, UserRole.SUPER_ADMIN]
         )
 
 class IsProviderOrAdmin(permissions.BasePermission):
@@ -76,8 +75,7 @@ class IsProviderOrAdmin(permissions.BasePermission):
     def has_permission(self, request, view):
         return (
             request.user.is_authenticated and
-            hasattr(request.user, 'profile') and
-            request.user.profile.role in [UserRole.PROVIDER, UserRole.ADMIN, UserRole.SUPER_ADMIN]
+            request.user.user_type in [UserRole.PROVIDER, UserRole.ADMIN, UserRole.SUPER_ADMIN]
         )
 
 class IsVerifiedProvider(permissions.BasePermission):
@@ -87,9 +85,9 @@ class IsVerifiedProvider(permissions.BasePermission):
     def has_permission(self, request, view):
         return (
             request.user.is_authenticated and
-            hasattr(request.user, 'profile') and
-            request.user.profile.role == UserRole.PROVIDER and
-            request.user.profile.is_verified
+            
+            request.user.user_type == UserRole.PROVIDER and
+            request.user.is_verified
         )
 
 class IsActiveSubscription(permissions.BasePermission):
@@ -97,10 +95,10 @@ class IsActiveSubscription(permissions.BasePermission):
     Custom permission to check if provider has active subscription.
     """
     def has_permission(self, request, view):
-        if not (request.user.is_authenticated and hasattr(request.user, 'profile')):
+        if not (request.user.is_authenticated):
             return False
         
-        if request.user.profile.role != UserRole.PROVIDER:
+        if request.user.user_type != UserRole.PROVIDER:
             return True  # Allow non-providers
         
         # Check if provider has active subscription
@@ -116,15 +114,15 @@ class CanViewLead(permissions.BasePermission):
     """
     def has_object_permission(self, request, view, obj):
         # Pilgrims can view their own leads
-        if request.user.profile.role == UserRole.PILGRIM:
+        if request.user.user_type == UserRole.PILGRIM:
             return obj.pilgrim == request.user.profile
         
         # Providers can view leads sent to them
-        if request.user.profile.role == UserRole.PROVIDER:
+        if request.user.user_type == UserRole.PROVIDER:
             return obj.providers.filter(id=request.user.profile.id).exists()
         
         # Admins can view all leads
-        if request.user.profile.role in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+        if request.user.user_type in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
             return True
         
         return False
@@ -135,11 +133,11 @@ class CanManagePackage(permissions.BasePermission):
     """
     def has_object_permission(self, request, view, obj):
         # Providers can manage their own packages
-        if request.user.profile.role == UserRole.PROVIDER:
+        if request.user.user_type == UserRole.PROVIDER:
             return obj.provider == request.user.profile
         
         # Admins can manage all packages
-        if request.user.profile.role in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+        if request.user.user_type in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
             return True
         
         return False
@@ -150,11 +148,11 @@ class CanManageService(permissions.BasePermission):
     """
     def has_object_permission(self, request, view, obj):
         # Providers can manage their own services
-        if request.user.profile.role == UserRole.PROVIDER:
+        if request.user.user_type == UserRole.PROVIDER:
             return obj.provider == request.user.profile
         
         # Admins can manage all services
-        if request.user.profile.role in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+        if request.user.user_type in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
             return True
         
         return False
@@ -193,8 +191,8 @@ class IsOwnerOrAdminOrReadOnly(permissions.BasePermission):
             return True
         
         # Write permissions for admins
-        if (hasattr(request.user, 'profile') and 
-            request.user.profile.role in [UserRole.ADMIN, UserRole.SUPER_ADMIN]):
+        if ( 
+            request.user.user_type in [UserRole.ADMIN, UserRole.SUPER_ADMIN]):
             return True
         
         return False
@@ -212,7 +210,7 @@ class IsProviderOrReadOnly(permissions.BasePermission):
         # Write permissions only for providers
         return (
             request.user.is_authenticated and
-            request.user.role == 'provider'
+            request.user.user_type == UserRole.PROVIDER
         )
     
     def has_object_permission(self, request, view, obj):

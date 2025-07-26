@@ -6,8 +6,57 @@ from .models import (
     ServiceFAQ, ServiceView, ServiceType, ServiceStatus
 )
 from apps.authentication.serializers import UserProfileSerializer
+import base64
+import uuid
+from django.core.files.base import ContentFile
 
 User = get_user_model()
+class Base64ImageField(serializers.ImageField):
+    """
+    A Django REST framework field for handling image-uploads through raw post data.
+    It uses base64 for encoding and decoding the contents of the file.
+    """
+    
+    def to_internal_value(self, data):
+        # Check if this is a base64 string
+        if isinstance(data, str) and data.startswith('data:image'):
+            try:
+                # Parse the base64 string
+                header, imgstr = data.split(';base64,')
+                ext = header.split('/')[1]  # Get extension from data:image/jpeg
+                
+                # Handle different image formats
+                if ext == 'jpeg':
+                    ext = 'jpg'
+                
+                # Generate a unique filename
+                filename = f"{uuid.uuid4()}.{ext}"
+                
+                # Decode the base64 string
+                decoded_data = base64.b64decode(imgstr)
+                data = ContentFile(decoded_data, name=filename)
+                
+            except (ValueError, IndexError) as e:
+                raise serializers.ValidationError(f"Invalid base64 image data: {str(e)}")
+        
+        return super().to_internal_value(data)
+    
+    def to_representation(self, value):
+        """Return full URL for the image"""
+        if not value:
+            return None
+        
+        # Check if the file actually exists
+        try:
+            if not value.storage.exists(value.name):
+                return None
+        except Exception:
+            return None
+        
+        request = self.context.get('request')
+        if request is not None:
+            return request.build_absolute_uri(value.url)
+        return value.url
 
 class ServiceCategorySerializer(serializers.ModelSerializer):
     services_count = serializers.SerializerMethodField()
@@ -24,13 +73,13 @@ class ServiceCategorySerializer(serializers.ModelSerializer):
         return obj.services.filter(status=ServiceStatus.PUBLISHED).count()
 
 class ServiceImageSerializer(serializers.ModelSerializer):
+    image = Base64ImageField()
     category_name = serializers.CharField(source='category.name', read_only=True)
-    image_url = serializers.SerializerMethodField()
     
     class Meta:
         model = ServiceImage
         fields = [
-            'id', 'name', 'image', 'image_url', 'category', 'category_name', 
+            'id', 'name', 'image', 'category', 'category_name', 
             'alt_text', 'is_active', 'created_at', 'updated_at'
         ]
         read_only_fields = ['created_at', 'updated_at']
@@ -42,7 +91,7 @@ class ServiceImageSerializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(obj.image.url)
             return obj.image.url
         return None
-
+    
 class ServiceAvailabilitySerializer(serializers.ModelSerializer):
     remaining_slots = serializers.ReadOnlyField()
     is_fully_booked = serializers.ReadOnlyField()

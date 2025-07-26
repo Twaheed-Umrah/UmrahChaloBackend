@@ -1,7 +1,6 @@
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
-import uuid
 
 class TimeStampedModel(models.Model):
     """
@@ -13,21 +12,15 @@ class TimeStampedModel(models.Model):
     class Meta:
         abstract = True
 
-class UUIDModel(models.Model):
+class BaseModel(TimeStampedModel, models.Model):
     """
-    Abstract base class that provides UUID primary key
+    Abstract base class that provides created_at, updated_at, and primary key.
     """
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    
+    id = models.AutoField(primary_key=True)
+
     class Meta:
         abstract = True
 
-class BaseModel(TimeStampedModel, UUIDModel):
-    """
-    Base model with UUID primary key and timestamps
-    """
-    class Meta:
-        abstract = True
 
 class SoftDeleteManager(models.Manager):
     """

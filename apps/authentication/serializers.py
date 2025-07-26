@@ -16,17 +16,23 @@ import re
 class UserProfileSerializer(serializers.ModelSerializer):
     full_name = serializers.SerializerMethodField()
     user_type_display = serializers.CharField(source='get_user_type_display', read_only=True)
+    location_info = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
             'id', 'username', 'email', 'phone', 'user_type', 'user_type_display',
-            'full_name', 'is_verified', 'is_active', 'created_at', 'updated_at'
+            'full_name', 'is_verified', 'is_active', 'latitude', 'longitude',
+            'location_address', 'location_updated_at', 'location_info',
+            'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'user_type', 'is_verified', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'user_type', 'is_verified', 'location_updated_at', 'created_at', 'updated_at']
 
     def get_full_name(self, obj):
         return obj.full_name or f"{obj.first_name} {obj.last_name}".strip() or obj.username
+
+    def get_location_info(self, obj):
+        return obj.get_location_info()
 
     def validate_email(self, value):
         user = self.context.get('request').user if self.context.get('request') else None
@@ -43,13 +49,59 @@ class UserProfileSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Invalid phone number format.")
         return value
 
+    def validate_latitude(self, value):
+        if value is not None:
+            if not (-90 <= float(value) <= 90):
+                raise serializers.ValidationError("Latitude must be between -90 and 90 degrees.")
+        return value
+
+    def validate_longitude(self, value):
+        if value is not None:
+            if not (-180 <= float(value) <= 180):
+                raise serializers.ValidationError("Longitude must be between -180 and 180 degrees.")
+        return value
+
+
+class LocationUpdateSerializer(serializers.Serializer):
+    """
+    Serializer specifically for location updates
+    """
+    latitude = serializers.DecimalField(max_digits=10, decimal_places=8)
+    longitude = serializers.DecimalField(max_digits=11, decimal_places=8)
+    address = serializers.CharField(max_length=500, required=False, allow_blank=True)
+
+    def validate_latitude(self, value):
+        if not (-90 <= float(value) <= 90):
+            raise serializers.ValidationError("Latitude must be between -90 and 90 degrees.")
+        return value
+
+    def validate_longitude(self, value):
+        if not (-180 <= float(value) <= 180):
+            raise serializers.ValidationError("Longitude must be between -180 and 180 degrees.")
+        return value
+
+    def update_user_location(self, user):
+        """Update user location with validated data"""
+        latitude = self.validated_data['latitude']
+        longitude = self.validated_data['longitude']
+        address = self.validated_data.get('address', '')
+        
+        user.update_location(latitude, longitude, address)
+        return user
+    
 class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, validators=[validate_password])
     confirm_password = serializers.CharField(write_only=True)
+    latitude = serializers.DecimalField(max_digits=10, decimal_places=8, required=False, allow_null=True)
+    longitude = serializers.DecimalField(max_digits=11, decimal_places=8, required=False, allow_null=True)
+    location_address = serializers.CharField(max_length=500, required=False, allow_blank=True)
     
     class Meta:
         model = User
-        fields = ['email', 'phone', 'password', 'confirm_password', 'user_type', 'full_name']
+        fields = [
+            'email', 'phone', 'password', 'confirm_password', 'user_type', 
+            'full_name', 'latitude', 'longitude', 'location_address'
+        ]
         extra_kwargs = {
             'password': {'write_only': True},
             'user_type': {'required': False},
@@ -67,9 +119,29 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Invalid phone number format.")
         return value
 
+    def validate_latitude(self, value):
+        if value is not None:
+            if not (-90 <= float(value) <= 90):
+                raise serializers.ValidationError("Latitude must be between -90 and 90 degrees.")
+        return value
+
+    def validate_longitude(self, value):
+        if value is not None:
+            if not (-180 <= float(value) <= 180):
+                raise serializers.ValidationError("Longitude must be between -180 and 180 degrees.")
+        return value
+
     def validate(self, attrs):
         if attrs['password'] != attrs['confirm_password']:
             raise serializers.ValidationError("Passwords do not match.")
+        
+        # Validate latitude and longitude together
+        latitude = attrs.get('latitude')
+        longitude = attrs.get('longitude')
+        
+        if (latitude is not None and longitude is None) or (latitude is None and longitude is not None):
+            raise serializers.ValidationError("Both latitude and longitude must be provided together or not at all.")
+        
         return attrs
 
     def create(self, validated_data):
@@ -79,6 +151,11 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         if not validated_data.get('user_type'):
             validated_data['user_type'] = 'pilgrim'
 
+        # Extract location data
+        latitude = validated_data.pop('latitude', None)
+        longitude = validated_data.pop('longitude', None)
+        location_address = validated_data.pop('location_address', None)
+
         user = User(
             email=validated_data['email'],
             phone=validated_data.get('phone'),
@@ -86,12 +163,17 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
             user_type=validated_data['user_type']
         )
         user.set_password(validated_data['password'])
+        
+        # Set location if provided
+        if latitude is not None and longitude is not None:
+            user.latitude = latitude
+            user.longitude = longitude
+            user.location_address = location_address
+            user.location_updated_at = timezone.now()
+        
         user.save()
 
         # Generate and send OTP
-        from .models import OTPVerification  # Adjust path if needed
-        from apps.core.utils import generate_otp, send_otp  # Ensure you have these utils
-
         otp = generate_otp()
         OTPVerification.objects.create(
             user=user,
@@ -259,6 +341,119 @@ class RefreshTokenSerializer(serializers.Serializer):
 
 
 # Service Provider Serializers
+class ServiceProviderRegistrationSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(write_only=True)
+    phone = serializers.CharField(write_only=True, required=False)
+    password = serializers.CharField(write_only=True, validators=[validate_password])
+    confirm_password = serializers.CharField(write_only=True)
+    latitude = serializers.DecimalField(max_digits=10, decimal_places=8, required=False, allow_null=True)
+    longitude = serializers.DecimalField(max_digits=11, decimal_places=8, required=False, allow_null=True)
+    location_address = serializers.CharField(max_length=500, required=False, allow_blank=True)
+
+    class Meta:
+        model = ServiceProviderProfile
+        fields = [
+            'email', 'phone', 'password', 'confirm_password',
+            'business_name', 'business_type', 'business_description',
+            'business_logo', 'business_email', 'business_phone', 'business_address',
+            'business_city', 'business_state', 'business_country', 'business_pincode',
+            'government_id_type', 'government_id_number', 'government_id_document',
+            'gst_number', 'gst_certificate', 'trade_license_number',
+            'trade_license_document', 'latitude', 'longitude', 'location_address'
+        ]
+
+    def validate_email(self, value):
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("A user with this email already exists.")
+        return value
+
+    def validate_phone(self, value):
+        if value:
+            phone_regex = re.compile(r'^\+?1?\d{9,15}$')
+            if not phone_regex.match(value):
+                raise serializers.ValidationError("Invalid phone number format.")
+        return value
+
+    def validate_business_email(self, value):
+        if ServiceProviderProfile.objects.filter(business_email=value).exists():
+            raise serializers.ValidationError("A service provider with this business email already exists.")
+        return value
+
+    def validate_latitude(self, value):
+        if value is not None:
+            if not (-90 <= float(value) <= 90):
+                raise serializers.ValidationError("Latitude must be between -90 and 90 degrees.")
+        return value
+
+    def validate_longitude(self, value):
+        if value is not None:
+            if not (-180 <= float(value) <= 180):
+                raise serializers.ValidationError("Longitude must be between -180 and 180 degrees.")
+        return value
+
+    def validate(self, attrs):
+        if attrs['password'] != attrs['confirm_password']:
+            raise serializers.ValidationError("Passwords do not match.")
+        
+        # Validate latitude and longitude together
+        latitude = attrs.get('latitude')
+        longitude = attrs.get('longitude')
+        
+        if (latitude is not None and longitude is None) or (latitude is None and longitude is not None):
+            raise serializers.ValidationError("Both latitude and longitude must be provided together or not at all.")
+        
+        return attrs
+
+    def validate_gst_number(self, value):
+        if value and len(value) != 15:
+            raise serializers.ValidationError("GST number must be 15 characters long")
+        return value
+
+    def create(self, validated_data):
+        email = validated_data.pop('email')
+        phone = validated_data.pop('phone', None)
+        password = validated_data.pop('password')
+        validated_data.pop('confirm_password', None)
+        
+        # Extract location data for user
+        latitude = validated_data.pop('latitude', None)
+        longitude = validated_data.pop('longitude', None)
+        location_address = validated_data.pop('location_address', None)
+
+        # Generate a unique username from email
+        username = email.split('@')[0]
+        if User.objects.filter(username=username).exists():
+            username = f"{username}_{uuid.uuid4().hex[:6]}"
+
+        user = User.objects.create_user(
+            username=username,
+            email=email,
+            phone=phone,
+            password=password,
+            user_type='provider'
+        )
+        
+        # Set location for provider (typically set once during registration)
+        if latitude is not None and longitude is not None:
+            user.latitude = latitude
+            user.longitude = longitude
+            user.location_address = location_address
+            user.location_updated_at = timezone.now()
+            user.save()
+
+        # Send OTP
+        otp = generate_otp()
+        OTPVerification.objects.create(
+            user=user,
+            otp=otp,
+            purpose='email_verification',
+            expires_at=timezone.now() + timezone.timedelta(minutes=10)
+        )
+        send_otp(user.email, otp, 'email_verification')
+
+        # Create profile
+        return ServiceProviderProfile.objects.create(user=user, **validated_data)
+
 class ServiceProviderProfileSerializer(serializers.ModelSerializer):
     """
     Service Provider profile serializer
@@ -297,100 +492,41 @@ class ServiceProviderProfileSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("A service provider with this business email already exists.")
         return value
 
-
-class ServiceProviderRegistrationSerializer(serializers.ModelSerializer):
-    email = serializers.EmailField(write_only=True)
-    phone = serializers.CharField(write_only=True, required=False)
-    password = serializers.CharField(write_only=True, validators=[validate_password])
-    confirm_password = serializers.CharField(write_only=True)
-
-    class Meta:
-        model = ServiceProviderProfile
-        fields = [
-            'email', 'phone', 'password', 'confirm_password',
-            'business_name', 'business_type', 'business_description',
-            'business_logo', 'business_email', 'business_phone', 'business_address',
-            'business_city', 'business_state', 'business_country', 'business_pincode',
-            'government_id_type', 'government_id_number', 'government_id_document',
-            'gst_number', 'gst_certificate', 'trade_license_number',
-            'trade_license_document'
-        ]
-
-    def validate_email(self, value):
-        if User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("A user with this email already exists.")
-        return value
-
-    def validate_phone(self, value):
-        if value:
-            phone_regex = re.compile(r'^\+?1?\d{9,15}$')
-            if not phone_regex.match(value):
-                raise serializers.ValidationError("Invalid phone number format.")
-        return value
-
-    def validate_business_email(self, value):
-        if ServiceProviderProfile.objects.filter(business_email=value).exists():
-            raise serializers.ValidationError("A service provider with this business email already exists.")
-        return value
-
-    def validate(self, attrs):
-        if attrs['password'] != attrs['confirm_password']:
-            raise serializers.ValidationError("Passwords do not match.")
-        return attrs
-
-    def validate_gst_number(self, value):
-        if value and len(value) != 15:
-            raise serializers.ValidationError("GST number must be 15 characters long")
-        return value
-
-    def create(self, validated_data):
-        email = validated_data.pop('email')
-        phone = validated_data.pop('phone', None)
-        password = validated_data.pop('password')
-        validated_data.pop('confirm_password', None)
-
-        # Generate a unique username from email
-        username = email.split('@')[0]
-        if User.objects.filter(username=username).exists():
-            username = f"{username}_{uuid.uuid4().hex[:6]}"
-
-        user = User.objects.create_user(
-            username=username,
-            email=email,
-            phone=phone,
-            password=password,
-            user_type='provider'
-        )
-
-        # Send OTP
-        otp = generate_otp()
-        OTPVerification.objects.create(
-            user=user,
-            otp=otp,
-            purpose='email_verification',
-            expires_at=timezone.now() + timezone.timedelta(minutes=10)
-        )
-        send_otp(user.email, otp, 'email_verification')
-
-        # Create profile
-        return ServiceProviderProfile.objects.create(user=user, **validated_data)
-
-
 class ServiceProviderListSerializer(serializers.ModelSerializer):
     """
-    Simplified Service Provider serializer for listing
+    Detailed Service Provider serializer for listing
     """
     user_email = serializers.CharField(source='user.email', read_only=True)
     user_username = serializers.CharField(source='user.username', read_only=True)
-    
+    user_full_name = serializers.CharField(source='user.full_name', read_only=True)
+    user_phone = serializers.CharField(source='user.phone', read_only=True)
+    user_type = serializers.CharField(source='user.user_type', read_only=True)
+    is_user_verified = serializers.BooleanField(source='user.is_verified', read_only=True)
+
+    government_id_document = serializers.FileField(read_only=True)
+    gst_certificate = serializers.FileField(read_only=True)
+    trade_license_document = serializers.FileField(read_only=True)
+
     class Meta:
         model = ServiceProviderProfile
         fields = [
-            'id', 'user_email', 'user_username', 'business_name', 'business_type',
-            'business_city', 'business_state', 'verification_status', 'average_rating',
-            'total_packages', 'total_reviews', 'is_active', 'is_featured', 'created_at'
+            'id','user_email','user_full_name','user_username','user_phone','user_type','is_user_verified',
+            'business_name',
+            'business_type',
+            'business_city',
+            'business_state',
+            'verification_status',
+            'average_rating',
+            'total_packages',
+            'total_reviews',
+            'is_active',
+            'is_featured',
+            'created_at','government_id_type','government_id_number','government_id_document',
+            'gst_number',
+            'gst_certificate',
+            'trade_license_number',
+            'trade_license_document',
         ]
-
 
 # Activity and Tracking Serializers
 class UserActivitySerializer(serializers.ModelSerializer):
@@ -438,18 +574,17 @@ class LoginAttemptSerializer(serializers.ModelSerializer):
 
 
 class UserSessionSerializer(serializers.ModelSerializer):
-    """
-    User Session serializer for session management
-    """
     user_email = serializers.CharField(source='user.email', read_only=True)
-    
+    session_key = serializers.CharField(read_only=True)  # Could contain 'JWT', UUID, etc.
+
     class Meta:
         model = UserSession
         fields = [
-            'id', 'user', 'user_email', 'session_key', 'device_info',
+            'id', 'user_email', 'session_key', 'device_info',
             'ip_address', 'is_active', 'created_at', 'last_activity'
         ]
-        read_only_fields = ['id', 'created_at', 'last_activity']
+        read_only_fields = fields  # Make everything read-only if it's only for viewing
+
 
 
 class EmailVerificationSerializer(serializers.Serializer):

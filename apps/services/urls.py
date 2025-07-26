@@ -19,7 +19,7 @@ urlpatterns = [
     
     # Additional custom URLs (if needed)
     # These would be for any non-viewset based views
-    
+    path('service-types/', views.service_type_choices, name='service-type-choices'),
     # Service category specific URLs
     path('categories/<int:pk>/services/', 
          views.ServiceCategoryViewSet.as_view({'get': 'services'}), 

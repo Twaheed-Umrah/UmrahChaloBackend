@@ -32,16 +32,16 @@ urlpatterns = [
     # Payments
     path('create/', PaymentCreateView.as_view(), name='payment-create'),
     path('list/', PaymentListView.as_view(), name='payment-list'),
-    path('<uuid:pk>/', PaymentDetailView.as_view(), name='payment-detail'),
-    path('<uuid:pk>/update/', PaymentUpdateView.as_view(), name='payment-update'),
-    path('<uuid:payment_id>/verify/', verify_payment, name='payment-verify'),
-    path('<uuid:payment_id>/cancel/', cancel_payment, name='payment-cancel'),
-    path('<uuid:payment_id>/receipt/', payment_receipt, name='payment-receipt'),
+    path('<int:pk>/', PaymentDetailView.as_view(), name='payment-detail'),
+    path('<int:pk>/update/', PaymentUpdateView.as_view(), name='payment-update'),
+    path('<int:payment_id>/verify/', verify_payment, name='payment-verify'),
+    path('<int:payment_id>/cancel/', cancel_payment, name='payment-cancel'),
+    path('<int:payment_id>/receipt/', payment_receipt, name='payment-receipt'),
     
     # Refunds
     path('refunds/create/', PaymentRefundCreateView.as_view(), name='refund-create'),
     path('refunds/', PaymentRefundListView.as_view(), name='refund-list'),
-    path('refunds/<uuid:pk>/', PaymentRefundDetailView.as_view(), name='refund-detail'),
+    path('refunds/<int:pk>/', PaymentRefundDetailView.as_view(), name='refund-detail'),
     
     # Transactions
     path('transactions/', PaymentTransactionListView.as_view(), name='transaction-list'),
@@ -56,7 +56,7 @@ urlpatterns = [
     # Admin URLs
     path('admin/payments/', AdminPaymentListView.as_view(), name='admin-payment-list'),
     path('admin/refunds/', AdminPaymentRefundListView.as_view(), name='admin-refund-list'),
-    path('admin/refunds/<uuid:pk>/update/', AdminPaymentRefundUpdateView.as_view(), name='admin-refund-update'),
+    path('admin/refunds/<int:pk>/update/', AdminPaymentRefundUpdateView.as_view(), name='admin-refund-update'),
     path('admin/analytics/', admin_payment_analytics, name='admin-payment-analytics'),
     path('admin/dashboard/', admin_dashboard, name='admin-dashboard'),
 ]

@@ -2,7 +2,6 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.utils import timezone
 from django.core.validators import RegexValidator
-import uuid
 from django.conf import settings
 from apps.core.models import BaseModel, UserRole
 class User(AbstractUser):
@@ -10,16 +9,43 @@ class User(AbstractUser):
     Custom User model extending AbstractUser
     """
     USER_TYPES = [
-    (UserRole.PILGRIM, UserRole.PILGRIM.label),
-    (UserRole.PROVIDER, UserRole.PROVIDER.label),
-    (UserRole.SUPER_ADMIN, UserRole.SUPER_ADMIN.label),
-   ]
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+        (UserRole.PILGRIM, UserRole.PILGRIM.label),
+        (UserRole.PROVIDER, UserRole.PROVIDER.label),
+        (UserRole.SUPER_ADMIN, UserRole.SUPER_ADMIN.label),
+    ]
+    
     full_name = models.CharField(max_length=255, blank=True, null=True)
     email = models.EmailField(unique=True)
     phone = models.CharField(max_length=15, blank=True, null=True)
     user_type = models.CharField(max_length=20, choices=USER_TYPES, default='pilgrim')
     is_verified = models.BooleanField(default=False)
+    
+    # Location fields
+    latitude = models.DecimalField(
+        max_digits=10, 
+        decimal_places=8, 
+        null=True, 
+        blank=True,
+        help_text="Latitude coordinate"
+    )
+    longitude = models.DecimalField(
+        max_digits=11, 
+        decimal_places=8, 
+        null=True, 
+        blank=True,
+        help_text="Longitude coordinate"
+    )
+    location_updated_at = models.DateTimeField(
+        null=True, 
+        blank=True,
+        help_text="Last time location was updated"
+    )
+    location_address = models.TextField(
+        blank=True, 
+        null=True,
+        help_text="Human readable address from coordinates"
+    )
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -44,6 +70,42 @@ class User(AbstractUser):
                 counter += 1
             self.username = username_candidate
         super().save(*args, **kwargs)
+    
+    def update_location(self, latitude, longitude, address=None):
+        """
+        Update user's location coordinates
+        For pilgrims: can be called multiple times (when app opens)
+        For providers: typically called once during profile creation
+        """
+        self.latitude = latitude
+        self.longitude = longitude
+        self.location_updated_at = timezone.now()
+        if address:
+            self.location_address = address
+        self.save(update_fields=['latitude', 'longitude', 'location_updated_at', 'location_address'])
+    
+    @property
+    def has_location(self):
+        """Check if user has location data"""
+        return self.latitude is not None and self.longitude is not None
+    
+    @property
+    def location_coordinates(self):
+        """Return coordinates as tuple (latitude, longitude)"""
+        if self.has_location:
+            return (float(self.latitude), float(self.longitude))
+        return None
+    
+    def get_location_info(self):
+        """Get complete location information"""
+        if self.has_location:
+            return {
+                'latitude': float(self.latitude),
+                'longitude': float(self.longitude),
+                'address': self.location_address,
+                'updated_at': self.location_updated_at
+            }
+        return None
         
 class OTPVerification(models.Model):
     """
