@@ -10,7 +10,7 @@ from .models import (
 
 @admin.register(PaymentMethod)
 class PaymentMethodAdmin(admin.ModelAdmin):
-    list_display = ('name', 'type', 'is_active', 'processing_fee_percentage', 'processing_fee_fixed', 'created_at')
+    list_display = ('name', 'type', 'is_active', 'created_at')
     list_filter = ('type', 'is_active')
     search_fields = ('name', 'type')
     ordering = ('-created_at',)

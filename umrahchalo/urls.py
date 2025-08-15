@@ -6,11 +6,11 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, Sp
 
 api_patterns = [
     path('authenticate/', include('apps.authentication.urls')),
-    path('services/', include('apps.services.urls')),
-    path('packages/', include('apps.packages.urls')),
+    path('services-pack/', include('apps.services.urls')),
+    path('packages-pack/', include('apps.packages.urls')),
     path('leads/', include('apps.leads.urls')),
     path('subscriptions/', include('apps.subscriptions.urls')),
-    path('notifications/', include('apps.notifications.urls')),
+    path('notify/', include('apps.notifications.urls')),
     path('payments/', include('apps.payments.urls')),
     path('reviews/', include('apps.reviews.urls')),
 ]

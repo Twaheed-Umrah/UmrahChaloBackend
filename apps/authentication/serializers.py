@@ -517,6 +517,8 @@ class ServiceProviderListSerializer(serializers.ModelSerializer):
             'business_state',
             'verification_status',
             'average_rating',
+            'business_email',
+            'business_phone',
             'total_packages',
             'total_reviews',
             'is_active',

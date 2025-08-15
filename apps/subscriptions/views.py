@@ -26,7 +26,7 @@ from .serializers import (
     SubscriptionStatusSerializer,
     UserSubscriptionSummarySerializer
 )
-from apps.core.permissions import IsServiceProvider, IsAdmin
+from apps.core.permissions import IsServiceProvider, IsAdmin,IsSuperAdmin
 from apps.core.pagination import LargeResultsSetPagination
 
 
@@ -42,7 +42,7 @@ class SubscriptionPlanViewSet(viewsets.ModelViewSet):
         if self.action in ['list', 'retrieve']:
             permission_classes = [permissions.AllowAny]
         else:
-            permission_classes = [IsAdmin]
+            permission_classes = [IsSuperAdmin]
         return [permission() for permission in permission_classes]
     
     def get_queryset(self):
@@ -100,14 +100,12 @@ class SubscriptionViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Filter subscriptions based on user role"""
         queryset = self.queryset
-        
-        if self.request.user.is_staff:
+        if self.request.user.user_type in ['super_admin', 'admin']:
             # Admin can see all subscriptions
             pass
         else:
             # Users can only see their own subscriptions
             queryset = queryset.filter(user=self.request.user)
-        
         # Filter by status
         status_filter = self.request.query_params.get('status')
         if status_filter:
@@ -285,7 +283,7 @@ class SubscriptionViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK
         )
     
-    @action(detail=True, methods=['patch'], permission_classes=[IsAdmin])
+    @action(detail=True, methods=['patch'], permission_classes=[IsSuperAdmin])
     def update_status(self, request, pk=None):
         """Update subscription status (admin only)"""
         subscription = self.get_object()
@@ -319,7 +317,6 @@ class SubscriptionHistoryViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         """Filter history based on user role"""
         queryset = self.queryset
-        
         if self.request.user.is_staff:
             # Admin can see all history
             pass

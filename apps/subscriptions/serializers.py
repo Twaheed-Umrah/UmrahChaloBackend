@@ -8,7 +8,7 @@ from .models import (
     SubscriptionFeature, 
     SubscriptionAlert
 )
-
+from apps.authentication.serializers import UserProfileSerializer;
 
 class SubscriptionPlanSerializer(serializers.ModelSerializer):
     """Serializer for subscription plans"""
@@ -40,6 +40,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     """Serializer for subscriptions"""
     
     plan_details = SubscriptionPlanSerializer(source='plan', read_only=True)
+    user_details = UserProfileSerializer(source='user', read_only=True)
     is_active = serializers.ReadOnlyField()
     days_remaining = serializers.ReadOnlyField()
     is_expired = serializers.ReadOnlyField()
@@ -47,7 +48,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Subscription
         fields = [
-            'id', 'user', 'plan', 'plan_details', 'start_date', 'end_date',
+            'id', 'user','user_details', 'plan', 'plan_details', 'start_date', 'end_date',
             'status', 'payment_id', 'amount_paid', 'auto_renew',
             'is_active', 'days_remaining', 'is_expired', 'created_at', 'updated_at'
         ]

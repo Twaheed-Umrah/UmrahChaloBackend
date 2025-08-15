@@ -20,8 +20,6 @@ class PaymentMethod(models.Model):
     type = models.CharField(max_length=20, choices=PAYMENT_TYPES)
     is_active = models.BooleanField(default=True)
     gateway_config = models.JSONField(default=dict, blank=True)
-    processing_fee_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
-    processing_fee_fixed = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

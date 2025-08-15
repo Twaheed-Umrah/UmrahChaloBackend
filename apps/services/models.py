@@ -4,7 +4,7 @@ from django.conf import settings
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
 from apps.core.models import BaseModel, UserRole
-
+from apps.authentication.models import ServiceProviderProfile
 
 User = get_user_model()
 
@@ -63,7 +63,7 @@ class Service(BaseModel):
     Individual services offered by providers
     """
     provider = models.ForeignKey(
-    settings.AUTH_USER_MODEL,
+    ServiceProviderProfile,
     on_delete=models.CASCADE,
     related_name='services'
 )
@@ -107,12 +107,12 @@ class Service(BaseModel):
     # Status and verification
     status = models.CharField(max_length=20, choices=ServiceStatus.choices, default=ServiceStatus.PENDING)
     verified_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='verified_services',
-        limit_choices_to={'role__in': [UserRole.ADMIN, UserRole.SUPER_ADMIN]}
+     settings.AUTH_USER_MODEL,
+     on_delete=models.SET_NULL,
+     null=True,
+     blank=True,
+     related_name='verified_services',
+     limit_choices_to={'user_type__in': [UserRole.ADMIN, UserRole.SUPER_ADMIN]}  # ✅
     )
     verified_at = models.DateTimeField(null=True, blank=True)
     rejection_reason = models.TextField(blank=True)
@@ -161,7 +161,14 @@ class Service(BaseModel):
         ]
     
     def __str__(self):
-        return f"{self.title} - {self.provider.user.get_full_name()}"
+         provider_name = None
+         try:
+             if self.provider and self.provider.user:
+                 provider_name = self.provider.user.get_full_name() or self.provider.user.username
+         except Exception:
+             provider_name = "Unknown Provider"
+         return f"{self.title} - ({provider_name})"
+
     
     def save(self, *args, **kwargs):
         if not self.slug:
@@ -214,11 +221,15 @@ class Service(BaseModel):
         return False
     
     def get_provider_subscription_status(self):
-        """Check if provider has active subscription"""
+        """Check if provider has an active subscription"""
+        from django.utils import timezone
         from apps.subscriptions.models import Subscription
+
         return Subscription.objects.filter(
-            provider=self.provider,
-            is_active=True
+            user=self.provider.user,
+            status='active',
+            start_date__lte=timezone.now(),
+            end_date__gte=timezone.now()
         ).exists()
 
 class ServiceAvailability(BaseModel):

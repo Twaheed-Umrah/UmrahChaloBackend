@@ -35,7 +35,7 @@ urlpatterns = [
     
     # Profile
     path('profile/', include([
-        path('', views.UserProfileView.as_view(), name='user-profile'),
+        path('user/', views.UserProfileView.as_view(), name='user-profile'),
         path('stats/', views.user_stats, name='user-stats'),
         path('dashboard/', views.dashboard_stats, name='dashboard-stats'),
         path('preferences/', views.user_preferences, name='user-preferences'),
@@ -66,7 +66,7 @@ urlpatterns = [
     path('providers/', include([
         path('register/', views.ServiceProviderRegistrationView.as_view(), name='provider-registration'),
         path('', views.ServiceProviderListView.as_view(), name='provider-list'),
-        path('<int:pk>/', views.ServiceProviderDetailView.as_view(), name='provider-detail'),
+        path('service-provider/me/', views.ServiceProviderDetailView.as_view(), name='provider-detail'),
         path('<int:provider_id>/verify/', views.ProviderVerificationView.as_view(), name='provider-verification'),
     ])),
         
@@ -93,7 +93,7 @@ urlpatterns = [
          views.ServiceProviderManagementDetailView.as_view(), 
          name='admin-service-provider-detail'),
     
-    path('admin/service-providers/stats/', 
+    path('service-providers/stats/', 
          views.ServiceProviderStatsView.as_view(), 
          name='admin-service-provider-stats'),
         path('users/', views.PilgrimManagementListView.as_view(), name='admin-user-list'),

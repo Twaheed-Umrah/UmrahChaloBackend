@@ -23,125 +23,154 @@ admin_router.register(r'packages', PackageAdminViewSet, basename='admin-package'
 urlpatterns = [
     # =============================================================================
     # PUBLIC/USER URLS - Accessible to all users (authenticated and unauthenticated)
+    # Role-based filtering applied in viewset get_queryset()
     # =============================================================================
     
     # Package listing and detail views
-    # GET /api/packages/ - List all published packages
-    # GET /api/packages/{id}/ - Get package details (increments view count)
-    path('api/', include(router.urls)),
+    # GET /package/packages/ - List packages (filtered by user role)
+    # GET /package/packages/{id}/ - Get package details (increments view count)
+    path('package/', include(router.urls)),
     
-    # Custom actions for public users
-    # GET /api/packages/featured/ - Get featured packages
-    path('api/packages/featured/', PackageViewSet.as_view({'get': 'featured'}), name='packages-featured'),
+    # Custom actions for public users (role-based filtering applied)
+    # GET /package/packages/featured/ - Get featured packages
+    path('package/packages/featured/', PackageViewSet.as_view({'get': 'featured'}), name='packages-featured'),
     
-    # GET /api/packages/popular/ - Get popular packages (based on views and leads)
-    path('api/packages/popular/', PackageViewSet.as_view({'get': 'popular'}), name='packages-popular'),
+    # GET /package/packages/popular/ - Get popular packages (based on views and leads)
+    path('package/packages/popular/', PackageViewSet.as_view({'get': 'popular'}), name='packages-popular'),
     
-    # GET /api/packages/recent/ - Get recently added packages
-    path('api/packages/recent/', PackageViewSet.as_view({'get': 'recent'}), name='packages-recent'),
+    # GET /package/packages/recent/ - Get recently added packages
+    path('package/packages/recent/', PackageViewSet.as_view({'get': 'recent'}), name='packages-recent'),
     
-    # GET /api/packages/{id}/availability/ - Get package availability calendar
-    path('api/packages/<int:pk>/availability/', PackageViewSet.as_view({'get': 'availability'}), name='package-availability'),
+    # GET /package/packages/{id}/availability/ - Get package availability calendar
+    path('package/packages/<int:pk>/availability/', PackageViewSet.as_view({'get': 'availability'}), name='package-availability'),
     
     
     # =============================================================================
     # PROVIDER URLS - Accessible to authenticated service providers
+    # Same endpoints as public but with provider permissions for CUD operations
     # =============================================================================
     
-    # Package CRUD operations for providers
-    # POST /api/provider/packages/ - Create new package (IsServiceProvider required)
-    # PUT /api/provider/packages/{id}/ - Update package (IsProviderOrReadOnly required)
-    # PATCH /api/provider/packages/{id}/ - Partial update package (IsProviderOrReadOnly required)
-    # DELETE /api/provider/packages/{id}/ - Delete package (IsProviderOrReadOnly required)
-    path('api/provider/', include(router.urls)),
+    # Package CRUD operations for providers (same URLs, different permissions)
+    # The viewset handles role-based access automatically
+    # POST /package/packages/ - Create new package (PROVIDER role required)
+    # PUT /package/packages/{id}/ - Update package (PROVIDER role + ownership required)
+    # PATCH /package/packages/{id}/ - Partial update package (PROVIDER role + ownership required)
+    # DELETE /package/packages/{id}/ - Delete package (PROVIDER role + ownership required)
     
     # Provider-specific actions
-    # GET /api/provider/packages/stats/ - Get package statistics for logged-in provider
-    path('api/provider/packages/stats/', PackageViewSet.as_view({'get': 'stats'}), name='provider-package-stats'),
+    # GET /package/packages/stats/ - Get package statistics for logged-in provider
+    path('package/packages/stats/', PackageViewSet.as_view({'get': 'stats'}), name='provider-package-stats'),
     
-    # POST /api/provider/packages/{id}/update-availability/ - Update package availability
-    path('api/provider/packages/<int:pk>/update-availability/', 
+    # POST /package/packages/{id}/update-availability/ - Update package availability
+    path('package/packages/<int:pk>/update-availability/', 
          PackageViewSet.as_view({'post': 'update_availability'}), 
          name='provider-package-update-availability'),
     
     # Package image management for providers
-    # GET /api/provider/packages/{package_id}/images/ - List package images
-    # POST /api/provider/packages/{package_id}/images/ - Upload new image
-    # PUT /api/provider/packages/{package_id}/images/{id}/ - Update image
-    # DELETE /api/provider/packages/{package_id}/images/{id}/ - Delete image
-    path('api/provider/', include(packages_router.urls)),
+    # GET /package/packages/{package_id}/images/ - List package images
+    # POST /package/packages/{package_id}/images/ - Upload new image
+    # PUT /package/packages/{package_id}/images/{id}/ - Update image
+    # DELETE /package/packages/{package_id}/images/{id}/ - Delete image
+    path('package/', include(packages_router.urls)),
     
     
     # =============================================================================
-    # ADMIN URLS - Accessible to admin users only
+    # ADMIN URLS - Accessible to admin and super_admin users only
     # =============================================================================
     
     # Admin package management
-    # GET /api/admin/packages/ - List all packages (all statuses)
-    # GET /api/admin/packages/{id}/ - Get package details (admin view)
-    path('api/admin/', include(admin_router.urls)),
+    # GET /package/admin/packages/ - List all packages (all statuses)
+    # GET /package/admin/packages/{id}/ - Get package details (admin view)
+    path('package/admin/', include(admin_router.urls)),
     
     # Package approval workflow
-    # GET /api/admin/packages/pending-approval/ - Get packages pending approval
-    path('api/admin/packages/pending-approval/', 
+    # GET /package/admin/packages/pending-approval/ - Get packages pending approval
+    path('package/admin/packages/pending-approval/', 
          PackageAdminViewSet.as_view({'get': 'pending_approval'}), 
          name='admin-packages-pending'),
     
-    # POST /api/admin/packages/{id}/approve/ - Approve a package
-    path('api/admin/packages/<int:pk>/approve/', 
+    # POST /package/admin/packages/{id}/approve/ - Approve a package (set to verified)
+    path('package/admin/packages/<int:pk>/approve/', 
          PackageAdminViewSet.as_view({'post': 'approve'}), 
          name='admin-package-approve'),
     
-    # POST /api/admin/packages/{id}/reject/ - Reject a package
-    path('api/admin/packages/<int:pk>/reject/', 
+    # POST /package/admin/packages/{id}/reject/ - Reject a package
+    path('package/admin/packages/<int:pk>/reject/', 
          PackageAdminViewSet.as_view({'post': 'reject'}), 
          name='admin-package-reject'),
     
+    # NEW: Publish a verified package
+    # POST /package/admin/packages/{id}/publish/ - Publish a verified package
+    path('package/admin/packages/<int:pk>/publish/', 
+         PackageAdminViewSet.as_view({'post': 'publish'}), 
+         name='admin-package-publish'),
+    
     # Package status management
-    # POST /api/admin/packages/{id}/update-status/ - Update package status
-    path('api/admin/packages/<int:pk>/update-status/', 
+    # POST /package/admin/packages/{id}/update-status/ - Update package status (any status)
+    path('package/admin/packages/<int:pk>/update-status/', 
          PackageViewSet.as_view({'post': 'update_status'}), 
          name='admin-package-update-status'),
     
-    # POST /api/admin/packages/{id}/toggle-featured/ - Toggle featured status
-    path('api/admin/packages/<int:pk>/toggle-featured/', 
+    # POST /package/admin/packages/{id}/toggle-featured/ - Toggle featured status
+    path('package/admin/packages/<int:pk>/toggle-featured/', 
          PackageViewSet.as_view({'post': 'toggle_featured'}), 
          name='admin-package-toggle-featured'),
     
     # Analytics and reporting
-    # GET /api/admin/packages/analytics/ - Get package analytics and statistics
-    path('api/admin/packages/analytics/', 
+    # GET /package/admin/packages/analytics/ - Get package analytics and statistics
+    path('package/admin/packages/analytics/', 
          PackageAdminViewSet.as_view({'get': 'analytics'}), 
          name='admin-packages-analytics'),
 ]
 
 # =============================================================================
-# URL PATTERNS SUMMARY
+# URL PATTERNS SUMMARY WITH ROLE-BASED ACCESS
 # =============================================================================
 """
-PUBLIC/USER ENDPOINTS:
-- GET /api/packages/ - List published packages
-- GET /api/packages/{id}/ - Package details
-- GET /api/packages/featured/ - Featured packages
-- GET /api/packages/popular/ - Popular packages
-- GET /api/packages/recent/ - Recent packages
-- GET /api/packages/{id}/availability/ - Package availability
+PUBLIC/USER ENDPOINTS (Role-based filtering applied automatically):
+- GET /package/packages/ - List packages
+  * Anonymous: Published + Active packages only
+  * PILGRIM: Verified + Published + Active packages only  
+  * PROVIDER: Published + Active packages + Own packages (any status)
+  * ADMIN/SUPER_ADMIN: All packages (any status)
 
-PROVIDER ENDPOINTS:
-- POST /api/provider/packages/ - Create package
-- PUT/PATCH /api/provider/packages/{id}/ - Update package
-- DELETE /api/provider/packages/{id}/ - Delete package
-- GET /api/provider/packages/stats/ - Provider statistics
-- POST /api/provider/packages/{id}/update-availability/ - Update availability
-- GET/POST/PUT/DELETE /api/provider/packages/{id}/images/ - Image management
+- GET /package/packages/{id}/ - Package details
+  * Same role-based filtering as above
 
-ADMIN ENDPOINTS:
-- GET /api/admin/packages/ - All packages (admin view)
-- GET /api/admin/packages/{id}/ - Package details (admin view)
-- GET /api/admin/packages/pending-approval/ - Pending packages
-- POST /api/admin/packages/{id}/approve/ - Approve package
-- POST /api/admin/packages/{id}/reject/ - Reject package
-- POST /api/admin/packages/{id}/update-status/ - Update status
-- POST /api/admin/packages/{id}/toggle-featured/ - Toggle featured
-- GET /api/admin/packages/analytics/ - Analytics dashboard
+- GET /package/packages/featured/ - Featured packages
+  * Filtered based on user role
+
+- GET /package/packages/popular/ - Popular packages  
+  * Filtered based on user role
+
+- GET /package/packages/recent/ - Recent packages
+  * Filtered based on user role
+
+- GET /package/packages/{id}/availability/ - Package availability
+  * Available for all visible packages
+
+PROVIDER ENDPOINTS (Same URLs as public, different permissions):
+- POST /package/packages/ - Create package (PROVIDER role required)
+- PUT/PATCH /package/packages/{id}/ - Update package (PROVIDER + ownership required)
+- DELETE /package/packages/{id}/ - Delete package (PROVIDER + ownership required)
+- GET /package/packages/stats/ - Provider statistics (PROVIDER role required)
+- POST /package/packages/{id}/update-availability/ - Update availability (PROVIDER + ownership)
+- GET/POST/PUT/DELETE /package/packages/{id}/images/ - Image management (PROVIDER + ownership)
+
+ADMIN ENDPOINTS (ADMIN/SUPER_ADMIN roles only):
+- GET /package/admin/packages/ - All packages (admin view)
+- GET /package/admin/packages/{id}/ - Package details (admin view)
+- GET /package/admin/packages/pending-approval/ - Pending packages
+- POST /package/admin/packages/{id}/approve/ - Approve package (pending → verified)
+- POST /package/admin/packages/{id}/reject/ - Reject package
+- POST /package/admin/packages/{id}/publish/ - Publish package (verified → published)
+- POST /package/admin/packages/{id}/update-status/ - Update status (any status change)
+- POST /package/admin/packages/{id}/toggle-featured/ - Toggle featured
+- GET /package/admin/packages/analytics/ - Analytics dashboard
+
+ROLE-BASED ACCESS SUMMARY:
+- ANONYMOUS: Published + Active packages only
+- PILGRIM: Verified + Published + Active packages only
+- PROVIDER: All published + own packages (any status) + full CRUD on owned packages
+- ADMIN/SUPER_ADMIN: Full access to all packages + status management
 """

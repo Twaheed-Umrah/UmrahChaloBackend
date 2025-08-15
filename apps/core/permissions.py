@@ -95,7 +95,7 @@ class IsActiveSubscription(permissions.BasePermission):
     Custom permission to check if provider has active subscription.
     """
     def has_permission(self, request, view):
-        if not (request.user.is_authenticated):
+        if not request.user.is_authenticated:
             return False
         
         if request.user.user_type != UserRole.PROVIDER:
@@ -103,11 +103,16 @@ class IsActiveSubscription(permissions.BasePermission):
         
         # Check if provider has active subscription
         from apps.subscriptions.models import Subscription
+        from django.utils import timezone
+        
+        # Filter using database fields, not the property
         return Subscription.objects.filter(
-            provider=request.user.profile,
-            is_active=True
+            user=request.user,  # Changed from provider to user based on your model
+            status='active',
+            start_date__lte=timezone.now(),
+            end_date__gt=timezone.now()
         ).exists()
-
+    
 class CanViewLead(permissions.BasePermission):
     """
     Custom permission to check if user can view lead.

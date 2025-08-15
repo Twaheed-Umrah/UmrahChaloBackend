@@ -1,7 +1,7 @@
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from django.db.models import Q, Count, F, Case, When, Value, IntegerField
 from django.utils import timezone
 from django.db import transaction
@@ -12,7 +12,8 @@ from .models import Lead, LeadDistribution, LeadInteraction, LeadNote
 from .serializers import (
     LeadSerializer, LeadCreateSerializer, LeadDistributionSerializer,
     LeadDistributionResponseSerializer, LeadInteractionSerializer,
-    LeadNoteSerializer, LeadStatsSerializer, LeadSummarySerializer
+    LeadNoteSerializer, LeadStatsSerializer, LeadSummarySerializer,
+    LeadManualDistributionSerializer
 )
 from .tasks import distribute_lead_to_providers
 from .filters import LeadFilter, LeadDistributionFilter
@@ -20,7 +21,7 @@ from .filters import LeadFilter, LeadDistributionFilter
 
 class LeadViewSet(viewsets.ModelViewSet):
     """
-    ViewSet for Lead model
+    ViewSet for Lead model with automatic distribution
     """
     queryset = Lead.objects.all()
     serializer_class = LeadSerializer
@@ -38,17 +39,23 @@ class LeadViewSet(viewsets.ModelViewSet):
         """
         user = self.request.user
         
-        if user.is_superuser:
-            return Lead.objects.all()
+        if user.user_type in ['super_admin', 'admin']:
+            return Lead.objects.select_related(
+                'user', 'package', 'service'
+            ).prefetch_related('distributions')
         
         # Service providers can only see distributed leads
-        if hasattr(user, 'service_provider'):
+        if hasattr(user, 'service_provider_profile'):
             return Lead.objects.filter(
-                distributions__provider=user.service_provider
-            ).distinct()
+                distributions__provider=user.service_provider_profile
+            ).select_related(
+                'user', 'package', 'service'
+            ).prefetch_related('distributions').distinct()
         
         # Regular users can only see their own leads
-        return Lead.objects.filter(user=user)
+        return Lead.objects.filter(user=user).select_related(
+            'package', 'service'
+        ).prefetch_related('distributions')
     
     def get_serializer_class(self):
         """
@@ -58,30 +65,36 @@ class LeadViewSet(viewsets.ModelViewSet):
             return LeadCreateSerializer
         elif self.action == 'list':
             return LeadSummarySerializer
+        elif self.action == 'manual_distribute':
+            return LeadManualDistributionSerializer
         return LeadSerializer
     
     def perform_create(self, serializer):
         """
-        Create lead and trigger distribution
+        Create lead and automatically distribute it to relevant providers
+        This is called when a pilgrim/user creates a lead
         """
         with transaction.atomic():
-            lead = serializer.save(user=self.request.user)
+            # The serializer's create method already handles auto-distribution
+            lead = serializer.save()
             
-            # Trigger async lead distribution
-            distribute_lead_to_providers.delay(lead.id)
+            # Optionally trigger async distribution if you want to use Celery
+            # distribute_lead_to_providers.delay(lead.id)
+            
+            return lead
     
     @action(detail=True, methods=['post'])
     def mark_contacted(self, request, pk=None):
         """
-        Mark lead as contacted
+        Mark lead as contacted by provider
         """
         lead = self.get_object()
         
         # Only provider who received the lead can mark it as contacted
-        if hasattr(request.user, 'service_provider'):
+        if hasattr(request.user, 'service_provider_profile'):
             distribution = LeadDistribution.objects.filter(
                 lead=lead,
-                provider=request.user.service_provider
+                provider=request.user.service_provider_profile
             ).first()
             
             if distribution:
@@ -89,7 +102,11 @@ class LeadViewSet(viewsets.ModelViewSet):
                 lead.status = 'contacted'
                 lead.save()
                 
-                return Response({'message': 'Lead marked as contacted'})
+                return Response({
+                    'message': 'Lead marked as contacted',
+                    'lead_id': lead.id,
+                    'status': lead.status
+                })
         
         return Response(
             {'error': 'Not authorized to mark this lead as contacted'},
@@ -99,15 +116,15 @@ class LeadViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def mark_converted(self, request, pk=None):
         """
-        Mark lead as converted
+        Mark lead as converted by provider
         """
         lead = self.get_object()
         
         # Only provider who received the lead can mark it as converted
-        if hasattr(request.user, 'service_provider'):
+        if hasattr(request.user, 'service_provider_profile'):
             distribution = LeadDistribution.objects.filter(
                 lead=lead,
-                provider=request.user.service_provider
+                provider=request.user.service_provider_profile
             ).first()
             
             if distribution:
@@ -119,7 +136,11 @@ class LeadViewSet(viewsets.ModelViewSet):
                 distribution.responded_at = timezone.now()
                 distribution.save()
                 
-                return Response({'message': 'Lead marked as converted'})
+                return Response({
+                    'message': 'Lead marked as converted',
+                    'lead_id': lead.id,
+                    'status': lead.status
+                })
         
         return Response(
             {'error': 'Not authorized to mark this lead as converted'},
@@ -129,15 +150,15 @@ class LeadViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def mark_rejected(self, request, pk=None):
         """
-        Mark lead as rejected
+        Mark lead as rejected by provider
         """
         lead = self.get_object()
         
         # Only provider who received the lead can mark it as rejected
-        if hasattr(request.user, 'service_provider'):
+        if hasattr(request.user, 'service_provider_profile'):
             distribution = LeadDistribution.objects.filter(
                 lead=lead,
-                provider=request.user.service_provider
+                provider=request.user.service_provider_profile
             ).first()
             
             if distribution:
@@ -148,7 +169,11 @@ class LeadViewSet(viewsets.ModelViewSet):
                 distribution.status = 'ignored'
                 distribution.save()
                 
-                return Response({'message': 'Lead marked as rejected'})
+                return Response({
+                    'message': 'Lead marked as rejected',
+                    'lead_id': lead.id,
+                    'status': lead.status
+                })
         
         return Response(
             {'error': 'Not authorized to mark this lead as rejected'},
@@ -160,21 +185,85 @@ class LeadViewSet(viewsets.ModelViewSet):
         """
         Get leads for current user
         """
-        leads = Lead.objects.filter(user=request.user)
+        leads = Lead.objects.filter(user=request.user).select_related(
+            'package', 'service'
+        ).prefetch_related('distributions__provider')
+        
+        page = self.paginate_queryset(leads)
+        if page is not None:
+            serializer = LeadSummarySerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        
         serializer = LeadSummarySerializer(leads, many=True)
         return Response(serializer.data)
+    
+    @action(detail=False, methods=['post'], permission_classes=[IsAdminUser])
+    def manual_distribute(self, request):
+        """
+        Manual lead distribution by superadmin
+        Automatically distributes to providers based on business_type
+        """
+        serializer = LeadManualDistributionSerializer(data=request.data)
+        
+        if serializer.is_valid():
+            try:
+                result = serializer.distribute_lead()
+                
+                return Response({
+                    'success': True,
+                    'message': result['message'],
+                    'lead_id': result['lead'].id,
+                    'distributed_to': len(result['distributions']),
+                    'providers': [
+                        {
+                            'id': dist.provider.id,
+                            'name': dist.provider.company_name or dist.provider.user.get_full_name(),
+                            'business_type': dist.provider.business_type
+                        }
+                        for dist in result['distributions']
+                    ]
+                })
+            except Exception as e:
+                return Response(
+                    {'error': f'Distribution failed: {str(e)}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
+    def redistribute(self, request, pk=None):
+        """
+        Redistribute a lead to additional providers
+        """
+        lead = self.get_object()
+        
+        # Use LeadCreateSerializer to get business types and distribute
+        serializer = LeadCreateSerializer()
+        target_business_types = serializer.get_target_business_types(lead)
+        
+        with transaction.atomic():
+            distributions = serializer.distribute_lead(lead)
+            
+            return Response({
+                'success': True,
+                'message': f'Lead redistributed to {len(distributions)} additional providers',
+                'lead_id': lead.id,
+                'target_business_types': target_business_types,
+                'new_distributions': len(distributions)
+            })
     
     @action(detail=False, methods=['get'])
     def stats(self, request):
         """
-        Get lead statistics
+        Get lead statistics based on user role
         """
         user = request.user
         
-        if hasattr(user, 'service_provider'):
-            # Provider stats
+        if hasattr(user, 'service_provider_profile'):
+            # Provider stats - leads distributed to this provider
             provider_leads = Lead.objects.filter(
-                distributions__provider=user.service_provider
+                distributions__provider=user.service_provider_profile
             ).distinct()
             
             total_leads = provider_leads.count()
@@ -198,7 +287,7 @@ class LeadViewSet(viewsets.ModelViewSet):
             this_month_leads = provider_leads.filter(created_at__date__gte=month_ago).count()
             
         else:
-            # User stats
+            # User stats - leads created by this user
             user_leads = Lead.objects.filter(user=user)
             
             total_leads = user_leads.count()
@@ -235,6 +324,38 @@ class LeadViewSet(viewsets.ModelViewSet):
         
         serializer = LeadStatsSerializer(stats_data)
         return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'], permission_classes=[IsAdminUser])
+    def distribution_summary(self, request):
+        """
+        Get distribution summary for admin
+        """
+        total_leads = Lead.objects.count()
+        distributed_leads = Lead.objects.filter(is_distributed=True).count()
+        pending_distribution = Lead.objects.filter(is_distributed=False).count()
+        
+        # Leads by business type
+        from apps.authentication.models import ServiceProviderProfile
+        business_type_stats = []
+        
+        for business_type, display_name in ServiceProviderProfile.BUSINESS_TYPES:
+            lead_count = LeadDistribution.objects.filter(
+                provider__business_type=business_type
+            ).values('lead').distinct().count()
+            
+            business_type_stats.append({
+                'business_type': business_type,
+                'display_name': display_name,
+                'lead_count': lead_count
+            })
+        
+        return Response({
+            'total_leads': total_leads,
+            'distributed_leads': distributed_leads,
+            'pending_distribution': pending_distribution,
+            'distribution_rate': round((distributed_leads / total_leads * 100), 2) if total_leads > 0 else 0,
+            'business_type_stats': business_type_stats
+        })
 
 
 class LeadDistributionViewSet(viewsets.ReadOnlyModelViewSet):
@@ -255,10 +376,10 @@ class LeadDistributionViewSet(viewsets.ReadOnlyModelViewSet):
         """
         Filter queryset for current provider
         """
-        if hasattr(self.request.user, 'service_provider'):
+        if hasattr(self.request.user, 'service_provider_profile'):
             return LeadDistribution.objects.filter(
-                provider=self.request.user.service_provider
-            )
+                provider=self.request.user.service_provider_profile
+            ).select_related('lead', 'provider')
         return LeadDistribution.objects.none()
     
     @action(detail=True, methods=['post'])
@@ -268,7 +389,11 @@ class LeadDistributionViewSet(viewsets.ReadOnlyModelViewSet):
         """
         distribution = self.get_object()
         distribution.mark_as_viewed()
-        return Response({'message': 'Lead marked as viewed'})
+        return Response({
+            'message': 'Lead marked as viewed',
+            'viewed_at': distribution.viewed_at,
+            'status': distribution.status
+        })
     
     @action(detail=True, methods=['post'])
     def respond(self, request, pk=None):
@@ -284,8 +409,24 @@ class LeadDistributionViewSet(viewsets.ReadOnlyModelViewSet):
         
         if serializer.is_valid():
             serializer.save()
-            return Response(serializer.data)
+            return Response({
+                'message': 'Response submitted successfully',
+                'distribution': LeadDistributionSerializer(distribution).data
+            })
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=False, methods=['get'])
+    def pending_responses(self, request):
+        """
+        Get distributions pending response
+        """
+        pending = self.get_queryset().filter(
+            status='sent',
+            viewed_at__isnull=False
+        )
+        
+        serializer = self.get_serializer(pending, many=True)
+        return Response(serializer.data)
 
 
 class LeadInteractionViewSet(viewsets.ModelViewSet):
@@ -305,10 +446,10 @@ class LeadInteractionViewSet(viewsets.ModelViewSet):
         """
         Filter queryset for current provider
         """
-        if hasattr(self.request.user, 'service_provider'):
+        if hasattr(self.request.user, 'service_provider_profile'):
             return LeadInteraction.objects.filter(
-                provider=self.request.user.service_provider
-            )
+                provider=self.request.user.service_provider_profile
+            ).select_related('lead', 'provider')
         return LeadInteraction.objects.none()
     
     @action(detail=False, methods=['get'])
@@ -332,6 +473,35 @@ class LeadInteractionViewSet(viewsets.ModelViewSet):
         successful = self.get_queryset().filter(is_successful=True)
         serializer = self.get_serializer(successful, many=True)
         return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def interaction_stats(self, request):
+        """
+        Get interaction statistics for provider
+        """
+        queryset = self.get_queryset()
+        
+        total_interactions = queryset.count()
+        successful_interactions = queryset.filter(is_successful=True).count()
+        pending_follow_ups = queryset.filter(
+            follow_up_date__lte=timezone.now(),
+            follow_up_date__isnull=False
+        ).count()
+        
+        success_rate = (successful_interactions / total_interactions * 100) if total_interactions > 0 else 0
+        
+        # Interaction types breakdown
+        interaction_types = queryset.values('interaction_type').annotate(
+            count=Count('id')
+        ).order_by('-count')
+        
+        return Response({
+            'total_interactions': total_interactions,
+            'successful_interactions': successful_interactions,
+            'pending_follow_ups': pending_follow_ups,
+            'success_rate': round(success_rate, 2),
+            'interaction_types': list(interaction_types)
+        })
 
 
 class LeadNoteViewSet(viewsets.ModelViewSet):
@@ -351,10 +521,10 @@ class LeadNoteViewSet(viewsets.ModelViewSet):
         """
         Filter queryset for current provider
         """
-        if hasattr(self.request.user, 'service_provider'):
+        if hasattr(self.request.user, 'service_provider_profile'):
             return LeadNote.objects.filter(
-                provider=self.request.user.service_provider
-            )
+                provider=self.request.user.service_provider_profile
+            ).select_related('lead', 'provider')
         return LeadNote.objects.none()
     
     @action(detail=False, methods=['get'])
@@ -371,4 +541,13 @@ class LeadNoteViewSet(viewsets.ModelViewSet):
         
         notes = self.get_queryset().filter(lead_id=lead_id)
         serializer = self.get_serializer(notes, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def private_notes(self, request):
+        """
+        Get private notes only
+        """
+        private_notes = self.get_queryset().filter(is_private=True)
+        serializer = self.get_serializer(private_notes, many=True)
         return Response(serializer.data)

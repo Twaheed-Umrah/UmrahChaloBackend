@@ -9,7 +9,8 @@ from apps.authentication.serializers import UserProfileSerializer
 import base64
 import uuid
 from django.core.files.base import ContentFile
-
+from apps.authentication.models import ServiceProviderProfile
+from apps.authentication.serializers import ServiceProviderProfileSerializer
 User = get_user_model()
 class Base64ImageField(serializers.ImageField):
     """
@@ -120,7 +121,7 @@ class ServiceListSerializer(serializers.ModelSerializer):
     """
     Lightweight serializer for service lists
     """
-    provider_name = serializers.CharField(source='provider.user.get_full_name', read_only=True)
+    provider = ServiceProviderProfileSerializer(read_only=True)
     provider_company = serializers.CharField(source='provider.company_name', read_only=True)
     category_name = serializers.CharField(source='category.name', read_only=True)
     featured_image_url = serializers.SerializerMethodField()
@@ -134,7 +135,7 @@ class ServiceListSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'short_description', 'service_type', 'category_name',
             'price', 'original_price', 'price_currency', 'price_per', 'discount_percentage',
-            'duration', 'city', 'state', 'featured_image_url', 'provider_name', 
+            'duration', 'city', 'state', 'country','featured_image_url', 'provider', 
             'provider_company', 'average_rating', 'total_reviews', 'views_count',
             'is_featured', 'is_popular', 'is_premium', 'status', 'slug',
             'departure_date', 'return_date', 'departure_city', 'arrival_city',
@@ -157,7 +158,7 @@ class ServiceDetailSerializer(serializers.ModelSerializer):
     """
     Detailed serializer for single service view
     """
-    provider = UserProfileSerializer(read_only=True)
+    provider = ServiceProviderProfileSerializer(read_only=True)
     category = ServiceCategorySerializer(read_only=True)
     images = ServiceImageSerializer(many=True, read_only=True)
     featured_image = ServiceImageSerializer(read_only=True)
@@ -255,7 +256,12 @@ class ServiceCreateUpdateSerializer(serializers.ModelSerializer):
         """
         Create service with current user as provider
         """
-        validated_data['provider'] = self.context['request'].user.profile
+        user = self.context['request'].user
+        try:
+           validated_data['provider'] = user.service_provider_profile
+        except ServiceProviderProfile.DoesNotExist:
+            raise serializers.ValidationError("Only providers can create services.")
+
         return super().create(validated_data)
 
 class ServiceStatusUpdateSerializer(serializers.ModelSerializer):
@@ -280,7 +286,7 @@ class ServiceStatusUpdateSerializer(serializers.ModelSerializer):
         Update service status and set verification details
         """
         if validated_data.get('status') == ServiceStatus.VERIFIED:
-            validated_data['verified_by'] = self.context['request'].user.profile
+            validated_data['verified_by'] = self.context['request'].user
             validated_data['verified_at'] = timezone.now()
         
         return super().update(instance, validated_data)

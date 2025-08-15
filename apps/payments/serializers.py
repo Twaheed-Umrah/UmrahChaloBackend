@@ -9,14 +9,16 @@ class PaymentMethodSerializer(serializers.ModelSerializer):
     class Meta:
         model = PaymentMethod
         fields = [
-            'id', 'name', 'type', 'is_active', 
-            'processing_fee_percentage', 'processing_fee_fixed'
+            'id', 'name', 'type', 'is_active'
         ]
         read_only_fields = ['id']
 
 class PaymentCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating payments"""
-    
+    payment_method = serializers.SlugRelatedField(
+        queryset=PaymentMethod.objects.all(),
+        slug_field='type'  # or 'name' depending on how your frontend sends it
+    )
     class Meta:
         model = Payment
         fields = [
@@ -44,13 +46,11 @@ class PaymentCreateSerializer(serializers.ModelSerializer):
         
         # Calculate processing fee
         amount = validated_data['amount']
-        processing_fee = (amount * payment_method.processing_fee_percentage / 100) + payment_method.processing_fee_fixed
-        total_amount = amount + processing_fee
+        total_amount = amount
         
         # Create payment
         payment = Payment.objects.create(
             user=request.user,
-            processing_fee=processing_fee,
             total_amount=total_amount,
             ip_address=request.META.get('REMOTE_ADDR'),
             user_agent=request.META.get('HTTP_USER_AGENT', ''),

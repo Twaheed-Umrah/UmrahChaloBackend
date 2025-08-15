@@ -571,36 +571,37 @@ class ServiceProviderListView(generics.ListAPIView):
 
 class ServiceProviderDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
-    API endpoint for service provider detail
+    API endpoint for retrieving, updating, and deleting the current service provider's profile
     """
-    queryset = ServiceProviderProfile.objects.all()
     serializer_class = ServiceProviderProfileSerializer
-    permission_classes = [IsProviderOrReadOnly]
-    
+    permission_classes = [IsAuthenticated, IsProviderOrReadOnly]
+
+    def get_object(self):
+        """
+        Return the ServiceProviderProfile for the currently logged-in user
+        """
+        return self.request.user.service_provider_profile  # Adjust based on your user model
+
     def perform_update(self, serializer):
         provider = serializer.save()
         
-        # Log activity
         UserActivity.objects.create(
             user=provider.user,
             activity_type='profile_update',
             description='Service provider profile updated',
             ip_address=get_client_ip(self.request)
         )
-    
+
     def perform_destroy(self, instance):
-        # Soft delete by setting is_active to False
         instance.is_active = False
         instance.save()
         
-        # Log activity
         UserActivity.objects.create(
             user=instance.user,
             activity_type='profile_deactivation',
             description='Service provider profile deactivated',
             ip_address=get_client_ip(self.request)
         )
-
 # Activity and Tracking Views
 class UserActivityListView(generics.ListAPIView):
     """
@@ -810,7 +811,7 @@ class ServiceProviderManagementListView(generics.ListAPIView):
         """
         Get all service provider profiles with related user data
         """
-        queryset = ServiceProviderProfile.objects.select_related('user').all()
+        queryset = ServiceProviderProfile.objects.select_related('user').filter(user__user_type="provider")
         
         # Custom filters that aren't handled by django-filter
         
@@ -1006,51 +1007,52 @@ class ServiceProviderStatsView(generics.GenericAPIView):
     permission_classes = [IsSuperAdmin]
     
     def get(self, request):
-        """
-        Get comprehensive service provider statistics
-        """
-        from django.db.models import Count, Avg, Sum
+        from django.db.models import Count, Avg
         from django.utils import timezone
         from datetime import timedelta
         
+        base_qs = ServiceProviderProfile.objects.select_related('user').filter(
+            user__user_type="provider"
+        )
+        
         # Basic counts
-        total_providers = ServiceProviderProfile.objects.count()
-        active_providers = ServiceProviderProfile.objects.filter(is_active=True).count()
+        total_providers = base_qs.count()
+        active_providers = base_qs.filter(is_active=True).count()
         
         # Verification status breakdown
-        verification_stats = ServiceProviderProfile.objects.values('verification_status').annotate(
+        verification_stats = base_qs.values('verification_status').annotate(
             count=Count('id')
         )
         
         # Business type breakdown
-        business_type_stats = ServiceProviderProfile.objects.values('business_type').annotate(
+        business_type_stats = base_qs.values('business_type').annotate(
             count=Count('id')
         )
         
         # Location breakdown (top 10 states)
-        location_stats = ServiceProviderProfile.objects.values('business_state').annotate(
+        location_stats = base_qs.values('business_state').annotate(
             count=Count('id')
         ).order_by('-count')[:10]
         
         # Recent registrations (last 30 days)
         thirty_days_ago = timezone.now() - timedelta(days=30)
-        recent_registrations = ServiceProviderProfile.objects.filter(
+        recent_registrations = base_qs.filter(
             created_at__gte=thirty_days_ago
         ).count()
         
         # Average ratings
-        avg_rating = ServiceProviderProfile.objects.aggregate(
+        avg_rating = base_qs.aggregate(
             avg_rating=Avg('average_rating')
         )['avg_rating'] or 0
         
         # Top performers
-        top_rated = ServiceProviderProfile.objects.filter(
+        top_rated = base_qs.filter(
             average_rating__gt=0
         ).order_by('-average_rating')[:5].values(
             'id', 'business_name', 'average_rating', 'total_reviews'
         )
         
-        most_packages = ServiceProviderProfile.objects.filter(
+        most_packages = base_qs.filter(
             total_packages__gt=0
         ).order_by('-total_packages')[:5].values(
             'id', 'business_name', 'total_packages'

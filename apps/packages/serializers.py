@@ -6,7 +6,7 @@ from .models import (
     Package, PackageService, PackageInclusion, PackageExclusion,
     PackageItinerary, PackageImage, PackagePolicy, PackageAvailability
 )
-
+from apps.authentication.models import ServiceProviderProfile
 
 class PackageImageSerializer(serializers.ModelSerializer):
     """Serializer for package images"""
@@ -96,7 +96,8 @@ class PackageListSerializer(serializers.ModelSerializer):
             'id', 'name', 'slug', 'package_type', 'provider',
             'base_price', 'discounted_price', 'final_price',
             'duration_days', 'start_date', 'end_date',
-            'booking_deadline', 'max_capacity', 'current_bookings',
+            'booking_deadline', 'max_capacity', 'current_bookings','city', 'state',
+            'country',
             'availability_percentage', 'is_available', 'status',
             'featured_image', 'rating', 'reviews_count',
             'views_count', 'leads_count', 'is_featured',
@@ -123,6 +124,7 @@ class PackageDetailSerializer(serializers.ModelSerializer):
     is_available = serializers.ReadOnlyField()
     availability_percentage = serializers.ReadOnlyField()
     
+    
     class Meta:
         model = Package
         fields = [
@@ -130,6 +132,7 @@ class PackageDetailSerializer(serializers.ModelSerializer):
             'provider', 'base_price', 'discounted_price', 'final_price',
             'duration_days', 'start_date', 'end_date', 'booking_deadline',
             'max_capacity', 'current_bookings', 'availability_percentage',
+            'city', 'state', 'country',
             'is_available', 'status', 'featured_image', 'rating',
             'reviews_count', 'views_count', 'leads_count', 'is_featured',
             'is_active', 'package_services', 'inclusions', 'exclusions',
@@ -161,6 +164,7 @@ class PackageCreateUpdateSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'description', 'package_type', 'base_price',
             'discounted_price', 'duration_days', 'start_date', 'end_date',
+            'city', 'state', 'country',
             'booking_deadline', 'max_capacity', 'featured_image',
             'is_active', 'services', 'inclusions', 'exclusions',
             'itineraries', 'policies', 'availabilities'
@@ -206,7 +210,9 @@ class PackageCreateUpdateSerializer(serializers.ModelSerializer):
         availabilities_data = validated_data.pop('availabilities', [])
         
         # Set provider from request user
-        validated_data['provider'] = self.context['request'].user.service_provider
+        user = self.context['request'].user
+        provider_profile = ServiceProviderProfile.objects.get(user=user)
+        validated_data['provider'] = provider_profile
         
         with transaction.atomic():
             # Create package

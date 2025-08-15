@@ -47,7 +47,6 @@ class ServiceAdmin(admin.ModelAdmin):
     readonly_fields = ('slug', 'views_count', 'leads_count', 'bookings_count', 'created_at', 'updated_at')
     ordering = ('-created_at',)
     inlines = [ServiceAvailabilityInline, ServiceFAQInline]
-    filter_horizontal = ('images',)
 
 
 @admin.register(ServiceAvailability)

@@ -30,6 +30,7 @@ THIRD_PARTY_APPS = [
     'corsheaders',
     'drf_spectacular',
     'django_filters',
+    'razorpay',
     'phonenumber_field',
     'django_extensions',
     'django_celery_beat',
@@ -227,8 +228,22 @@ SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 SESSION_CACHE_ALIAS = 'default'
 
 # Payment Gateway Configuration
-RAZORPAY_KEY_ID = config('RAZORPAY_KEY_ID', default='')
-RAZORPAY_KEY_SECRET = config('RAZORPAY_KEY_SECRET', default='')
+RAZORPAY_KEY_ID = 'rzp_test_ZI5G0k0dQJfr79'
+RAZORPAY_KEY_SECRET = 'lZUttTsMhykdSWawNeXGC5nG'
+
+# Optional: Webhook secret for signature validation
+# You can get this from Razorpay dashboard when setting up webhooks
+RAZORPAY_WEBHOOK_SECRET = 'Umrahchalo@786'  # Replace with actual secret
+
+# Payment gateway settings
+PAYMENT_GATEWAY_SETTINGS = {
+    'RAZORPAY': {
+        'KEY_ID': RAZORPAY_KEY_ID,
+        'KEY_SECRET': RAZORPAY_KEY_SECRET,
+        'WEBHOOK_SECRET': RAZORPAY_WEBHOOK_SECRET if 'RAZORPAY_WEBHOOK_SECRET' in locals() else None,
+        'MODE': 'TEST',  # Change to 'LIVE' in production
+    }
+}
 STRIPE_PUBLIC_KEY = config('STRIPE_PUBLIC_KEY', default='')
 STRIPE_SECRET_KEY = config('STRIPE_SECRET_KEY', default='')
 

@@ -10,6 +10,7 @@ from django.core.cache import cache
 from django.conf import settings
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
+from django.core.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from .models import (
     ServiceCategory, ServiceImage, Service, ServiceAvailability, 
@@ -27,6 +28,7 @@ from apps.core.permissions import (
     IsAdminOrSuperAdmin, IsProviderOrAdmin, IsVerifiedProvider,
     IsActiveSubscription, CanManageService
 )
+from apps.authentication.models import ServiceProviderProfile
 from apps.core.pagination import LargeResultsSetPagination
 from apps.core.utils import get_client_ip
 
@@ -42,8 +44,11 @@ class ServiceCategoryViewSet(viewsets.ReadOnlyModelViewSet):
     ordering = ['display_order', 'name']
     
     def get_queryset(self):
-        return self.queryset.prefetch_related('services')
-    
+        qs = self.queryset.prefetch_related('services')
+
+        # Exclude Hajj Package and Umrah Package by name
+        return qs.exclude(name__in=["Hajj Package", "Umrah Package"])
+        
     @action(detail=True, methods=['get'])
     def services(self, request, pk=None):
         """
@@ -92,9 +97,6 @@ def service_type_choices(request):
     return Response(choices)
 
 class ServiceViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet for Services with different permissions based on user role
-    """
     queryset = Service.objects.all()
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
@@ -103,28 +105,38 @@ class ServiceViewSet(viewsets.ModelViewSet):
     ordering_fields = ['price', 'created_at', 'views_count', 'title']
     ordering = ['-created_at']
     pagination_class = LargeResultsSetPagination
-    
+
+    def get_user_role(self):
+        user = self.request.user
+        if not user.is_authenticated:
+            return 'anonymous'
+        if hasattr(user, 'user_type'):
+            return user.user_type
+        if user.is_superuser:
+            return 'super_admin'
+        elif user.is_staff:
+            return 'admin'
+        elif hasattr(user, 'service_provider_profile'):
+            return 'provider'
+        return 'pilgrim'
+
     def get_queryset(self):
         user = self.request.user
-        
-        if hasattr(user, 'profile'):
-            if user.profile.role in ['admin', 'super_admin']:
-                # Admin can see all services
-                return self.queryset.select_related('provider', 'category', 'featured_image')
-            elif user.profile.role == 'provider':
-                # Providers can see their own services and published services from others
-                return self.queryset.filter(
-                    Q(provider=user.profile) | Q(status=ServiceStatus.PUBLISHED)
-                ).select_related('provider', 'category', 'featured_image')
-            else:
-                # Pilgrims can only see published services from providers with active subscriptions
-                return self.queryset.filter(
-                    status=ServiceStatus.PUBLISHED,
-                    provider__subscriptions__is_active=True
-                ).select_related('provider', 'category', 'featured_image')
-        
-        return Service.objects.none()
-    
+        role = self.get_user_role()
+        base_queryset = self.queryset.select_related('provider', 'category', 'featured_image')
+        if role in ['admin', 'super_admin']:
+            return base_queryset
+        elif role == 'provider':
+            if hasattr(user, 'service_provider_profile'):
+                return base_queryset.filter(provider=user.service_provider_profile)
+            return self.queryset.none()
+        elif role == 'pilgrim':
+            return base_queryset.filter(
+                status=ServiceStatus.PUBLISHED,
+                provider__subscriptions__is_active=True
+            )
+        return self.queryset.none()
+
     def get_serializer_class(self):
         if self.action == 'list':
             return ServiceListSerializer
@@ -133,16 +145,13 @@ class ServiceViewSet(viewsets.ModelViewSet):
         elif self.action == 'update_status':
             return ServiceStatusUpdateSerializer
         return ServiceDetailSerializer
-    
+
     def get_permissions(self):
-        """
-        Instantiates and returns the list of permissions that this view requires.
-        """
         if self.action == 'list':
             permission_classes = [permissions.IsAuthenticated]
         elif self.action == 'retrieve':
-            permission_classes = [permissions.IsAuthenticated]
-        elif self.action in ['create']:
+            permission_classes = [IsVerifiedProvider, IsActiveSubscription]
+        elif self.action == 'create':
             permission_classes = [IsVerifiedProvider, IsActiveSubscription]
         elif self.action in ['update', 'partial_update', 'destroy']:
             permission_classes = [CanManageService]
@@ -150,126 +159,109 @@ class ServiceViewSet(viewsets.ModelViewSet):
             permission_classes = [IsAdminOrSuperAdmin]
         else:
             permission_classes = [permissions.IsAuthenticated]
-        
         return [permission() for permission in permission_classes]
+
+    def perform_create(self, serializer):
+        try:
+            profile = self.request.user.service_provider_profile
+        except ServiceProviderProfile.DoesNotExist:
+            raise ValidationError("Only providers can create services.")
     
+        serializer.save(provider=profile)
+
     def retrieve(self, request, *args, **kwargs):
-        """
-        Retrieve a single service and increment view count
-        """
         instance = self.get_object()
-        
-        # Track view if not the owner
-        if not (hasattr(request.user, 'profile') and 
-                request.user.profile.role == 'provider' and 
-                instance.provider == request.user.profile):
-            
-            # Increment view count
+        user_role = self.get_user_role()
+
+        if not (user_role == 'provider' and
+                hasattr(request.user, 'service_provider_profile') and
+                instance.provider == request.user.service_provider_profile):
             instance.increment_views()
-            
-            # Track detailed view
             ServiceView.objects.create(
                 service=instance,
                 user=request.user if request.user.is_authenticated else None,
                 ip_address=get_client_ip(request),
                 user_agent=request.META.get('HTTP_USER_AGENT', '')
             )
-        
+
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
-    
-    def perform_create(self, serializer):
-        """
-        Save the service with current user as provider
-        """
-        serializer.save(provider=self.request.user.profile)
-    
+
+    def perform_update(self, serializer):
+        if not hasattr(self.request.user, 'service_provider_profile'):
+            raise ValidationError("Only providers can update services.")
+        serializer.save(provider=self.request.user.service_provider_profile)
+
     @action(detail=True, methods=['post'], permission_classes=[IsAdminOrSuperAdmin])
     def update_status(self, request, pk=None):
-        """
-        Update service status (Admin only)
-        """
-        service = self.get_object()
-        serializer = ServiceStatusUpdateSerializer(
-            service, 
-            data=request.data, 
-            context={'request': request}
-        )
-        
+        try:
+                     service = Service.objects.get(pk=pk)
+        except Service.DoesNotExist:
+                      return Response({'error': 'Service not found'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = ServiceStatusUpdateSerializer(service, data=request.data, context={'request': request})
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
+
     @action(detail=False, methods=['get'])
     def my_services(self, request):
-        """
-        Get current provider's services
-        """
-        if not (hasattr(request.user, 'profile') and 
-                request.user.profile.role == 'provider'):
-            return Response(
-                {'error': 'Only providers can access this endpoint'}, 
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        services = self.get_queryset().filter(provider=request.user.profile)
+        if not (hasattr(request.user, 'service_provider_profile') and self.get_user_role() == 'provider'):
+            return Response({'error': 'Only providers can access this endpoint'}, status=status.HTTP_403_FORBIDDEN)
+
+        services = self.get_queryset().filter(provider=request.user.service_provider_profile)
         filtered_services = ServiceFilter(request.GET, queryset=services).qs
-        
-        paginator = self.pagination_class()
-        page = paginator.paginate_queryset(filtered_services, request)
-        
+        page = self.paginate_queryset(filtered_services)
         serializer = ServiceListSerializer(page, many=True, context={'request': request})
-        return paginator.get_paginated_response(serializer.data)
-    
+        return self.get_paginated_response(serializer.data)
+    @action(detail=False, methods=['get'], url_path='admin-services')
+    def admin_services(self, request):
+        role = self.get_user_role()
+
+        if role not in ['admin', 'super_admin']:
+            return Response({'error': 'Only admins can access this endpoint'}, status=status.HTTP_403_FORBIDDEN)
+
+        services = self.get_queryset()
+        filtered_services = ServiceFilter(request.GET, queryset=services).qs
+        page = self.paginate_queryset(filtered_services)
+        serializer = ServiceListSerializer(page, many=True, context={'request': request})
+        return self.get_paginated_response(serializer.data)
+    @action(detail=False, methods=['get'], url_path='get-service-by-id')
+    def get_by_id(self, request):
+        service_id = request.query_params.get('id')
+        if not service_id:
+            return Response({"error": "ID is required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            service = self.get_queryset().get(id=service_id)
+            serializer = self.get_serializer(service)
+            return Response(serializer.data)
+        except Service.DoesNotExist:
+            return Response({"error": "Service not found"}, status=status.HTTP_404_NOT_FOUND)
     @action(detail=False, methods=['get'])
     def featured(self, request):
-        """
-        Get featured services
-        """
-        services = self.get_queryset().filter(
-            is_featured=True,
-            status=ServiceStatus.PUBLISHED
-        )
-        
+        services = self.get_queryset().filter(is_featured=True, status=ServiceStatus.PUBLISHED)
         filtered_services = ServiceFilter(request.GET, queryset=services).qs
-        
-        paginator = self.pagination_class()
-        page = paginator.paginate_queryset(filtered_services, request)
-        
+        page = self.paginate_queryset(filtered_services)
         serializer = ServiceListSerializer(page, many=True, context={'request': request})
-        return paginator.get_paginated_response(serializer.data)
-    
+        return self.get_paginated_response(serializer.data)
+
     @action(detail=False, methods=['get'])
     def popular(self, request):
-        """
-        Get popular services based on views and leads
-        """
-        services = self.get_queryset().filter(
-            status=ServiceStatus.PUBLISHED
-        ).order_by('-views_count', '-leads_count')
-        
+        services = self.get_queryset().filter(status=ServiceStatus.PUBLISHED).order_by('-views_count', '-leads_count')
         filtered_services = ServiceFilter(request.GET, queryset=services).qs
-        
-        paginator = self.pagination_class()
-        page = paginator.paginate_queryset(filtered_services, request)
-        
+        page = self.paginate_queryset(filtered_services)
         serializer = ServiceListSerializer(page, many=True, context={'request': request})
-        return paginator.get_paginated_response(serializer.data)
-    
+        return self.get_paginated_response(serializer.data)
+
     @action(detail=False, methods=['get'])
     def search(self, request):
-        """
-        Advanced search with multiple filters
-        """
         search_serializer = ServiceSearchSerializer(data=request.GET)
         if not search_serializer.is_valid():
             return Response(search_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        
+
         filters = search_serializer.validated_data
         services = self.get_queryset().filter(status=ServiceStatus.PUBLISHED)
-        
-        # Apply search filters
+
         if filters.get('q'):
             services = services.filter(
                 Q(title__icontains=filters['q']) |
@@ -277,73 +269,45 @@ class ServiceViewSet(viewsets.ModelViewSet):
                 Q(city__icontains=filters['q']) |
                 Q(provider__company_name__icontains=filters['q'])
             )
-        
         if filters.get('service_type'):
             services = services.filter(service_type=filters['service_type'])
-        
         if filters.get('category'):
             services = services.filter(category_id=filters['category'])
-        
         if filters.get('city'):
             services = services.filter(city__icontains=filters['city'])
-        
         if filters.get('min_price'):
             services = services.filter(price__gte=filters['min_price'])
-        
         if filters.get('max_price'):
             services = services.filter(price__lte=filters['max_price'])
-        
         if filters.get('date_from'):
-            services = services.filter(
-                Q(is_always_available=True) |
-                Q(available_from__lte=filters['date_from'])
-            )
-        
+            services = services.filter(Q(is_always_available=True) | Q(available_from__lte=filters['date_from']))
         if filters.get('date_to'):
-            services = services.filter(
-                Q(is_always_available=True) |
-                Q(available_to__gte=filters['date_to'])
-            )
-        
-        # Air ticket specific filters
+            services = services.filter(Q(is_always_available=True) | Q(available_to__gte=filters['date_to']))
         if filters.get('departure_city'):
             services = services.filter(departure_city__icontains=filters['departure_city'])
-        
         if filters.get('arrival_city'):
             services = services.filter(arrival_city__icontains=filters['arrival_city'])
-        
         if filters.get('departure_date'):
             services = services.filter(departure_date=filters['departure_date'])
-        
         if filters.get('is_featured'):
             services = services.filter(is_featured=True)
-        
         if filters.get('is_popular'):
             services = services.filter(is_popular=True)
-        
         if filters.get('min_rating'):
-            services = services.annotate(
-                avg_rating=Avg('reviews__rating')
-            ).filter(avg_rating__gte=filters['min_rating'])
-        
-        # Apply ordering
+            services = services.annotate(avg_rating=Avg('reviews__rating')).filter(avg_rating__gte=filters['min_rating'])
+
         ordering = filters.get('ordering', '-created_at')
         services = services.order_by(ordering)
-        
-        paginator = self.pagination_class()
-        page = paginator.paginate_queryset(services, request)
-        
+
+        page = self.paginate_queryset(services)
         serializer = ServiceListSerializer(page, many=True, context={'request': request})
-        return paginator.get_paginated_response(serializer.data)
-    
+        return self.get_paginated_response(serializer.data)
+
     @action(detail=False, methods=['get'], permission_classes=[IsAdminOrSuperAdmin])
     def stats(self, request):
-        """
-        Get service statistics (Admin only)
-        """
         cache_key = 'service_stats'
         stats = cache.get(cache_key)
-        
+
         if not stats:
             stats = {
                 'total_services': Service.objects.count(),
@@ -358,53 +322,35 @@ class ServiceViewSet(viewsets.ModelViewSet):
                 ),
                 'recent_services': Service.objects.order_by('-created_at')[:10]
             }
-            cache.set(cache_key, stats, timeout=300)  # Cache for 5 minutes
-        
-        # Serialize recent services
-        recent_services = ServiceListSerializer(
-            stats['recent_services'], 
-            many=True, 
-            context={'request': request}
+            cache.set(cache_key, stats, timeout=300)
+
+        stats['recent_services'] = ServiceListSerializer(
+            stats['recent_services'], many=True, context={'request': request}
         ).data
-        stats['recent_services'] = recent_services
-        
+
         serializer = ServiceStatsSerializer(stats)
         return Response(serializer.data)
-    
+
     @action(detail=True, methods=['post'])
     def add_to_favorites(self, request, pk=None):
-        """
-        Add service to user's favorites
-        """
+        if self.get_user_role() != 'pilgrim':
+            return Response({'error': 'Only pilgrims can add services to favorites'}, status=status.HTTP_403_FORBIDDEN)
         service = self.get_object()
-        user_profile = request.user.profile
-        
-        if user_profile.role != 'pilgrim':
-            return Response(
-                {'error': 'Only pilgrims can add services to favorites'}, 
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        user_profile.favorite_services.add(service)
-        return Response({'message': 'Service added to favorites'})
-    
+        if hasattr(request.user, 'pilgrim_profile'):
+            request.user.pilgrim_profile.favorite_services.add(service)
+            return Response({'message': 'Service added to favorites'})
+        return Response({'error': 'Pilgrim profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
     @action(detail=True, methods=['post'])
     def remove_from_favorites(self, request, pk=None):
-        """
-        Remove service from user's favorites
-        """
+        if self.get_user_role() != 'pilgrim':
+            return Response({'error': 'Only pilgrims can remove services from favorites'}, status=status.HTTP_403_FORBIDDEN)
         service = self.get_object()
-        user_profile = request.user.profile
-        
-        if user_profile.role != 'pilgrim':
-            return Response(
-                {'error': 'Only pilgrims can remove services from favorites'}, 
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        user_profile.favorite_services.remove(service)
-        return Response({'message': 'Service removed from favorites'})
-
+        if hasattr(request.user, 'pilgrim_profile'):
+            request.user.pilgrim_profile.favorite_services.remove(service)
+            return Response({'message': 'Service removed from favorites'})
+        return Response({'error': 'Pilgrim profile not found'}, status=status.HTTP_404_NOT_FOUND)
+  
 class ServiceAvailabilityViewSet(viewsets.ModelViewSet):
     """
     ViewSet for Service Availability management
@@ -420,12 +366,12 @@ class ServiceAvailabilityViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         
-        if hasattr(user, 'profile'):
-            if user.profile.role in ['admin', 'super_admin']:
+        if hasattr(user, 'service_provider_profile'):
+            if user.service_provider_profile.role  in ['admin', 'super_admin']:
                 return self.queryset.select_related('service')
-            elif user.profile.role == 'provider':
+            elif user.service_provider_profile.role == 'provider':
                 return self.queryset.filter(
-                    service__provider=user.profile
+                    service__provider=user.service_provider_profile
                 ).select_related('service')
         
         return ServiceAvailability.objects.none()
@@ -441,9 +387,9 @@ class ServiceAvailabilityViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         # Ensure the service belongs to the current provider
         service = serializer.validated_data['service']
-        if (hasattr(self.request.user, 'profile') and 
-            self.request.user.profile.role == 'provider' and 
-            service.provider != self.request.user.profile):
+        if (hasattr(self.request.user, 'service_provider_profile') and 
+            self.request.user.service_provider_profile.role == 'provider' and 
+            service.provider != self.request.user.service_provider_profile):
             raise serializers.ValidationError(
                 "You can only create availability for your own services"
             )
@@ -466,11 +412,11 @@ class ServiceFAQViewSet(viewsets.ModelViewSet):
         user = self.request.user
         
         if hasattr(user, 'profile'):
-            if user.profile.role in ['admin', 'super_admin']:
+            if user.service_provider_profile.role  in ['admin', 'super_admin']:
                 return self.queryset.select_related('service')
-            elif user.profile.role == 'provider':
+            elif user.service_provider_profile.role == 'provider':
                 return self.queryset.filter(
-                    service__provider=user.profile
+                    service__provider=user.service_provider_profile
                 ).select_related('service')
             else:
                 # Pilgrims can see FAQs for published services only
@@ -489,16 +435,14 @@ class ServiceFAQViewSet(viewsets.ModelViewSet):
         return [permission() for permission in permission_classes]
     
     def perform_create(self, serializer):
-        # Ensure the service belongs to the current provider
-        service = serializer.validated_data['service']
-        if (hasattr(self.request.user, 'profile') and 
-            self.request.user.profile.role == 'provider' and 
-            service.provider != self.request.user.profile):
-            raise serializers.ValidationError(
-                "You can only create FAQs for your own services"
-            )
-        
-        serializer.save()
+        user = self.request.user
+
+        try:
+            provider_profile = user.service_provider_profile  # One-to-one or reverse relation
+        except ServiceProviderProfile.DoesNotExist:
+            raise ValidationError("You must create a ServiceProviderProfile before creating a service.")
+
+        serializer.save(provider=provider_profile)
 
 class ServiceViewViewSet(viewsets.ReadOnlyModelViewSet):
     """
