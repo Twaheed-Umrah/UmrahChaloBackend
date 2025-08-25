@@ -3,14 +3,14 @@ from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
+from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
-
 from apps.core.permissions import IsOwnerOrReadOnly, IsProviderOrReadOnly
 from apps.core.pagination import LargeResultsSetPagination
-from apps.core.permissions import IsServiceProvider, IsSuperAdmin
+from apps.core.permissions import IsServiceProvider, IsSuperAdmin,IsActiveSubscription
 from .models import Package, PackageImage, PackageAvailability
 from .serializers import (
     PackageListSerializer, PackageDetailSerializer,
@@ -18,7 +18,7 @@ from .serializers import (
     PackageImageSerializer, PackageAvailabilitySerializer
 )
 from .filters import PackageFilter, PackageAdminFilter
-
+from apps.notifications.services import NotificationService 
 
 class PackageViewSet(viewsets.ModelViewSet):
     """
@@ -33,7 +33,7 @@ class PackageViewSet(viewsets.ModelViewSet):
     search_fields = ['name', 'description', 'provider__business_name']
     ordering_fields = [
         'created_at', 'updated_at', 'name', 'base_price', 'start_date',
-        'rating', 'views_count', 'leads_count'
+        'rating', 'views_count', 'leads_count', 'is_featured'
     ]
     ordering = ['-is_featured', '-created_at']
     
@@ -51,9 +51,9 @@ class PackageViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         """Set permissions based on action"""
         if self.action in ['create']:
-            return [IsAuthenticated(), IsServiceProvider()]
+            return [IsAuthenticated(), IsServiceProvider(),IsActiveSubscription()]
         elif self.action in ['update', 'partial_update', 'destroy']:
-            return [IsAuthenticated(), IsProviderOrReadOnly()]
+            return [IsAuthenticated(),IsActiveSubscription()]
         elif self.action == 'update_status':
             return [IsAuthenticated(), self.get_admin_permission()]
         else:
@@ -164,6 +164,7 @@ class PackageViewSet(viewsets.ModelViewSet):
 
         except Package.DoesNotExist:
             return Response({"error": "Package not found"}, status=status.HTTP_404_NOT_FOUND)
+  
     @action(detail=True, methods=['post'])
     def update_status(self, request, pk=None):
         """Update package status (admin and super_admin only)"""
@@ -177,11 +178,17 @@ class PackageViewSet(viewsets.ModelViewSet):
             )
         
         package = self.get_object()
+        
+        # Get the old status before update
+        old_status = package.status
+        
         serializer = self.get_serializer(package, data=request.data)
         
         if serializer.is_valid():
-            # Update verification fields if status is being changed to verified/published
+            # Get the new status from validated data
             new_status = serializer.validated_data.get('status')
+            
+            # Update verification fields if status is being changed to verified/published
             if new_status in ['verified', 'published'] and package.status != new_status:
                 serializer.save(
                     verified_by=request.user,
@@ -189,6 +196,60 @@ class PackageViewSet(viewsets.ModelViewSet):
                 )
             else:
                 serializer.save()
+            
+            # Send notifications based on status change
+            try:
+                if old_status != new_status:
+                    if new_status in ['approved', 'verified', 'published']:
+                        # Send approval notification
+                        NotificationService.create_notification(
+                            recipient=package.provider.user,
+                            notification_type='package_approved',
+                            title="Package Approved!",
+                            message=f"Your package '{package.name}' has been approved and is now live on Umrah Chalo.",
+                            data={
+                                'package_name': package.name,
+                                'package_id': package.id,
+                                'provider_name': getattr(package.provider, 'business_name', package.provider.user.full_name),
+                                'approval_date': timezone.now().strftime('%Y-%m-%d'),
+                                'package_duration': f"{package.duration_days} days" if hasattr(package, 'duration_days') else 'N/A',
+                                'package_price': f"₹{package.base_price}" if package.base_price else 'Contact for pricing',
+                                'package_url': f"{getattr(settings, 'FRONTEND_URL', '')}/packages/{package.id}/",
+                                'dashboard_url': f"{getattr(settings, 'FRONTEND_URL', '')}/provider/dashboard/",
+                                'verified_by': request.user.full_name or request.user.email,
+                            },
+                            related_object=package,
+                            priority='high'
+                        )
+                        
+                    elif new_status == 'rejected':
+                        # Send rejection notification
+                        rejection_reason = request.data.get('rejection_reason', 'Please review and improve your package details.')
+                        
+                        NotificationService.create_notification(
+                            recipient=package.provider.user,
+                            notification_type='package_rejected',
+                            title="Package Needs Attention",
+                            message=f"Your package '{package.name}' requires some improvements before it can be approved.",
+                            data={
+                                'package_name': package.name,
+                                'package_id': package.id,
+                                'provider_name': getattr(package.provider, 'business_name', package.provider.user.full_name),
+                                'rejection_reason': rejection_reason,
+                                'rejection_date': timezone.now().strftime('%Y-%m-%d'),
+                                'edit_package_url': f"{getattr(settings, 'FRONTEND_URL', '')}/provider/packages/{package.id}/edit/",
+                                'dashboard_url': f"{getattr(settings, 'FRONTEND_URL', '')}/provider/dashboard/",
+                                'support_url': f"{getattr(settings, 'FRONTEND_URL', '')}/support/",
+                                'resubmit_guidelines_url': f"{getattr(settings, 'FRONTEND_URL', '')}/provider/guidelines/",
+                            },
+                            related_object=package,
+                            priority='high'
+                        )
+                        
+            except Exception as notification_error:
+                # Log the error but don't fail the status update
+                logger.error(f"Failed to send package status notification: {notification_error}")
+            
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
@@ -367,7 +428,37 @@ class PackageViewSet(viewsets.ModelViewSet):
         }
         
         return Response(stats)
+class PublicPackageDetailView(APIView):
+    """
+    Public API to fetch a package by ID
+    Accessible by anyone (login or not)
+    """
+    permission_classes = [AllowAny]  # 👈 Allow access without authentication
 
+    def get(self, request, *args, **kwargs):
+        package_id = request.query_params.get("id")
+
+        if not package_id:
+            return Response(
+                {"error": "Package ID is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            package = Package.objects.get(id=package_id)  # 👈 no role-based filter
+            serializer = PackageDetailSerializer(package)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        except Package.DoesNotExist:
+            return Response(
+                {"error": "Package not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except ValueError:
+            return Response(
+                {"error": "Invalid package ID format"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
 class PackageImageViewSet(viewsets.ModelViewSet):
     """
@@ -521,7 +612,7 @@ class PackageAdminViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        package.status = 'verified'  # Changed from 'published' to 'verified'
+        package.status = 'published'  # Changed from 'published' to 'verified'
         package.verified_by = request.user
         package.verified_at = timezone.now()
         package.save()

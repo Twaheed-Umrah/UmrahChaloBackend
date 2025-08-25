@@ -1,0 +1,43 @@
+UMRAH CHALO - PAYMENT ISSUE
+
+Assalam-o-Alaikum {{customer_name}},
+
+We could not process your payment
+
+Payment Failed: We encountered an issue while processing your payment. Do not worry, your booking is still reserved for a limited time.
+
+AMOUNT: {{currency}} {{amount}}
+
+TRANSACTION DETAILS:
+- Transaction ID: {{transaction_id}}
+- Payment Method: {{payment_method}}
+- Date & Time: {{payment_date}}
+- Status: FAILED
+- Error: {{error_message}}
+
+COMMON SOLUTIONS:
+- Check if you have sufficient funds
+- Verify your card details are correct
+- Ensure your card is enabled for online transactions
+- Try a different payment method
+- Contact your bank if the issue persists
+
+YOUR BOOKING DETAILS:
+- Package: {{package_name}}
+- Travel Date: {{travel_date}}
+- Duration: {{package_duration}}
+- Travelers: {{traveler_count}} person(s)
+- Reserved Until: {{reservation_expires}}
+
+Retry payment: {{retry_payment_url}}
+Contact support: {{support_url}}
+
+IMPORTANT: Your booking is reserved for {{reservation_hours}} hours. Complete payment to confirm your Umrah journey.
+
+We are here to help ensure your sacred journey proceeds smoothly. Please do not hesitate to contact us.
+
+---
+We are here to help
+UMRAH CHALO - Your trusted Umrah partner
+
+Support: support@umrahchalo.com

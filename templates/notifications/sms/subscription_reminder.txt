@@ -1,0 +1,1 @@
+🔔 Reminder: Your {{ plan_name }} subscription expires on {{ end_date }}. Renew to continue premium features.

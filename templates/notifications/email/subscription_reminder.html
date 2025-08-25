@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subscription Reminder - Umrah Chalo</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 20px;
+        }
+        
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #17A2B8 0%, #138496 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        .brand-name {
+            font-size: 18px;
+            margin-top: 10px;
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .content h2 {
+            color: #2c3e50;
+            margin-top: 0;
+            margin-bottom: 20px;
+            font-size: 22px;
+        }
+        
+        .reminder-box {
+            background: #d1ecf1;
+            border-left: 4px solid #17A2B8;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        .subscription-info {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            text-align: center;
+        }
+        
+        .days-left {
+            font-size: 36px;
+            font-weight: bold;
+            color: #17A2B8;
+            margin-bottom: 5px;
+        }
+        
+        .benefits-box {
+            background: #e8f5e8;
+            border-left: 4px solid #28A745;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #1B7B4C 0%, #2E8B57 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            margin: 15px 0;
+            transition: all 0.3s ease;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(27, 123, 76, 0.3);
+        }
+        
+        .footer {
+            background: #1B7B4C;
+            color: white;
+            padding: 20px 30px;
+            text-align: center;
+            font-size: 14px;
+        }
+        
+        .umrah-icon {
+            font-size: 20px;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="header">
+            <h1><span class="umrah-icon">🔔</span> Subscription Reminder</h1>
+            <div class="brand-name">Umrah Chalo</div>
+        </div>
+        <div class="content">
+            <h2>Don't miss out on potential customers</h2>
+            <p>Assalam-o-Alaikum {{provider_name}},</p>
+            
+            <div class="reminder-box">
+                <strong>Friendly Reminder:</strong> Your Umrah Chalo subscription will expire soon. Renew now to continue receiving bookings and serving pilgrims.
+            </div>
+            
+            <div class="subscription-info">
+                <div class="days-left">{{days_left}}</div>
+                <div>Days Until Expiry</div>
+                <p><strong>Expires on:</strong> {{expiry_date}}</p>
+                <p><strong>Current Plan:</strong> {{current_plan}}</p>
+            </div>
+            
+            <div class="benefits-box">
+                <h3>🌟 Why Renew Your Subscription?</h3>
+                <ul>
+                    <li>Continue receiving customer inquiries</li>
+                    <li>Keep your packages visible to pilgrims</li>
+                    <li>Maintain your business reputation</li>
+                    <li>Access to customer reviews and feedback</li>
+                    <li>Priority customer support</li>
+                </ul>
+            </div>
+            
+            <p><strong>📊 Your Performance:</strong></p>
+            <ul>
+                <li><strong>Total Leads:</strong> {{total_leads}} this month</li>
+                <li><strong>Bookings:</strong> {{total_bookings}}</li>
+                <li><strong>Average Rating:</strong> {{average_rating}} ⭐</li>
+                <li><strong>Response Time:</strong> {{avg_response_time}}</li>
+            </ul>
+            
+            <div style="text-align: center;">
+                <a href="{{renewal_url}}" class="btn">Renew Subscription</a>
+                <a href="{{plans_url}}" class="btn" style="margin-left: 10px;">View Plans</a>
+            </div>
+            
+            <p><strong>Renewal Options:</strong></p>
+            <ul>
+                <li><strong>Monthly:</strong> {{monthly_price}} - Most flexible</li>
+                <li><strong>Quarterly:</strong> {{quarterly_price}} - Save 15%</li>
+                <li><strong>Annual:</strong> {{annual_price}} - Best value, save 30%</li>
+            </ul>
+            
+            <p><em>💡 Early renewal gets you 7 extra days free!</em></p>
+            
+            <p style="font-style: italic; color: #666; margin-top: 25px;">
+                Continue your blessed work of facilitating the sacred journey of Umrah for Muslims worldwide.
+            </p>
+        </div>
+        <div class="footer">
+            Keep serving pilgrims • <strong>Umrah Chalo</strong> - Your trusted Umrah partner
+        </div>
+    </div>
+</body>
+</html>

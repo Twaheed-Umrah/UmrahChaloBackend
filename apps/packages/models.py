@@ -113,7 +113,11 @@ class Package(models.Model):
 
     @property
     def final_price(self):
-        return self.discounted_price if self.discounted_price else self.base_price
+    # Assume self.discount_amount stores the discount value
+        if self.discounted_price:
+            return self.base_price - self.discounted_price
+        return self.base_price
+
 
 
 class PackageService(BaseModel):

@@ -1,0 +1,29 @@
+UMRAH CHALO - SUBSCRIPTION EXPIRING SOON
+
+Assalam-o-Alaikum {{provider_name}},
+
+IMPORTANT: Your subscription is expiring soon!
+
+Your Umrah Chalo subscription is expiring soon! Do not miss out on potential customers and bookings.
+
+DAYS REMAINING: {{days_left}}
+EXPIRES ON: {{expiry_date}}
+
+What happens after expiry:
+- Your packages will be hidden from customers
+- You wo not receive new leads
+- Your profile will be deactivated
+- Customer reviews will be paused
+
+CURRENT PLAN: {{current_plan}}
+RENEWAL AMOUNT: {{renewal_amount}}
+
+To renew your subscription, visit: {{renewal_url}}
+
+Continue serving pilgrims on their sacred journey to the Holy Land.
+
+---
+Keep your business active
+UMRAH CHALO - Your trusted Umrah partner
+
+If you have any questions, contact us at support@umrahchalo.com

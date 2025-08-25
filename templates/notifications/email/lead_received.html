@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lead Received Notification - Umrah Chalo</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 20px;
+        }
+        
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #1B7B4C 0%, #2E8B57 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        .brand-name {
+            font-size: 18px;
+            margin-top: 10px;
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .content h2 {
+            color: #2c3e50;
+            margin-top: 0;
+            margin-bottom: 20px;
+            font-size: 22px;
+        }
+        
+        .success-box {
+            background: #e8f5e8;
+            border-left: 4px solid #1B7B4C;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin: 20px 0;
+        }
+        
+        .stat-item {
+            text-align: center;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            flex: 1;
+            margin: 0 5px;
+        }
+        
+        .stat-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #1B7B4C;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #1B7B4C 0%, #2E8B57 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            margin: 15px 0;
+            transition: all 0.3s ease;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(27, 123, 76, 0.3);
+        }
+        
+        .footer {
+            background: #1B7B4C;
+            color: white;
+            padding: 20px 30px;
+            text-align: center;
+            font-size: 14px;
+        }
+        
+        .umrah-icon {
+            font-size: 20px;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="header">
+            <h1><span class="umrah-icon">🕌</span> New Lead Alert!</h1>
+            <div class="brand-name">Umrah Chalo</div>
+        </div>
+        <div class="content">
+            <h2>Great news! You have a new inquiry</h2>
+            <p>Assalam-o-Alaikum {{provider_name}},</p>
+            
+            <div class="success-box">
+                <strong>A potential customer is interested in your services!</strong><br>
+                You have received a new lead for <strong>{{service_name}}</strong>
+            </div>
+            
+            <div class="stats">
+                <div class="stat-item">
+                    <div class="stat-number">{{lead_count}}</div>
+                    <div>Total Leads</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">{{response_time}}</div>
+                    <div>Avg Response</div>
+                </div>
+            </div>
+            
+            <p><strong>Lead Details:</strong></p>
+            <ul>
+                <li><strong>Customer:</strong> {{customer_name}}</li>
+                <li><strong>Service:</strong> {{service_type}}</li>
+                <li><strong>Travel Date:</strong> {{travel_date}}</li>
+                <li><strong>Group Size:</strong> {{group_size}} people</li>
+            </ul>
+            
+            <div style="text-align: center;">
+                <a href="{{lead_url}}" class="btn">View Lead Details</a>
+            </div>
+            
+            <p><em>💡 Quick responses increase your booking chances by 85%!</em></p>
+            
+            <p style="font-style: italic; color: #666; margin-top: 25px;">
+                May Allah bless your business and make this journey easy for your customers.
+            </p>
+        </div>
+        <div class="footer">
+            Respond quickly to stay competitive • <strong>Umrah Chalo</strong> - Your trusted Umrah partner
+        </div>
+    </div>
+</body>
+</html>

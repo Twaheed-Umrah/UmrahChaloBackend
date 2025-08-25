@@ -82,36 +82,42 @@ class IsVerifiedProvider(permissions.BasePermission):
     """
     Custom permission to only allow verified service providers.
     """
+    message = "You must be a verified service provider by Admin."
+
     def has_permission(self, request, view):
         return (
             request.user.is_authenticated and
-            
             request.user.user_type == UserRole.PROVIDER and
             request.user.is_verified
+           
         )
-
 class IsActiveSubscription(permissions.BasePermission):
     """
-    Custom permission to check if provider has active subscription.
+    Custom permission to check if provider has an active subscription.
     """
+    message = "You need an active subscription to access this resource."
+
     def has_permission(self, request, view):
         if not request.user.is_authenticated:
+            self.message = "Authentication credentials were not provided."
             return False
-        
+
         if request.user.user_type != UserRole.PROVIDER:
-            return True  # Allow non-providers
-        
-        # Check if provider has active subscription
+            return True  # Allow non-providers without subscription check
         from apps.subscriptions.models import Subscription
         from django.utils import timezone
-        
-        # Filter using database fields, not the property
-        return Subscription.objects.filter(
-            user=request.user,  # Changed from provider to user based on your model
-            status='active',
+        # Check if provider has active subscription
+        has_subscription = Subscription.objects.filter(
+            user=request.user,
+            status="active",
             start_date__lte=timezone.now(),
             end_date__gt=timezone.now()
         ).exists()
+
+        if not has_subscription:
+            self.message = "Your subscription is not active. Please subscribe to continue."
+
+        return has_subscription
     
 class CanViewLead(permissions.BasePermission):
     """

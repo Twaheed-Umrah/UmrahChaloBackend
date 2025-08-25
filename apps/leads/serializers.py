@@ -105,7 +105,7 @@ class LeadSerializer(serializers.ModelSerializer):
                     custom_types.append('air_ticket_group_fare_umrah')
             
             # Check special requirements and custom message
-            requirements_text = f"{lead.special_requirements or ''} {lead.custom_message or ''}".lower()
+            requirements_text = f"{lead.special_requirements or ''}".lower()
             if 'visa' in requirements_text:
                 custom_types.append('visa')
             if 'hotel' in requirements_text:
@@ -186,7 +186,7 @@ class LeadCreateSerializer(serializers.ModelSerializer):
         fields = [
             'package', 'service', 'lead_type', 'full_name', 'email', 'phone',
             'preferred_date', 'number_of_people', 'budget_range', 'departure_city',
-             'special_requirements', 'custom_message',
+             'special_requirements',
             'selected_services', 'source', 'priority'
         ]
     
@@ -264,7 +264,7 @@ class LeadCreateSerializer(serializers.ModelSerializer):
                     custom_types.append('jam_jam_water')
             
             # Check special requirements and custom message
-            requirements_text = f"{lead.special_requirements or ''} {lead.custom_message or ''}".lower()
+            requirements_text = f"{lead.special_requirements or ''}".lower()
             if 'visa' in requirements_text:
                 custom_types.append('visa')
             if 'hotel' in requirements_text:

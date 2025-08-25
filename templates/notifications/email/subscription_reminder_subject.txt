@@ -1,0 +1,42 @@
+UMRAH CHALO - SUBSCRIPTION REMINDER
+
+Assalam-o-Alaikum {{provider_name}},
+
+Do not miss out on potential customers
+
+Friendly Reminder: Your Umrah Chalo subscription will expire soon. Renew now to continue receiving bookings and serving pilgrims.
+
+DAYS UNTIL EXPIRY: {{days_left}}
+EXPIRES ON: {{expiry_date}}
+CURRENT PLAN: {{current_plan}}
+
+Why Renew Your Subscription?
+- Continue receiving customer inquiries
+- Keep your packages visible to pilgrims
+- Maintain your business reputation
+- Access to customer reviews and feedback
+- Priority customer support
+
+YOUR PERFORMANCE:
+- Total Leads: {{total_leads}} this month
+- Bookings: {{total_bookings}}
+- Average Rating: {{average_rating}} stars
+- Response Time: {{avg_response_time}}
+
+RENEWAL OPTIONS:
+- Monthly: {{monthly_price}} - Most flexible
+- Quarterly: {{quarterly_price}} - Save 15%
+- Annual: {{annual_price}} - Best value, save 30%
+
+Renew subscription: {{renewal_url}}
+View plans: {{plans_url}}
+
+TIP: Early renewal gets you 7 extra days free!
+
+Continue your blessed work of facilitating the sacred journey of Umrah for Muslims worldwide.
+
+---
+Keep serving pilgrims
+UMRAH CHALO - Your trusted Umrah partner
+
+Contact: support@umrahchalo.com

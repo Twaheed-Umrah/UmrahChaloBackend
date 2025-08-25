@@ -73,7 +73,10 @@ ROOT_URLCONF = 'umrahchalo.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'templates'],
+        'DIRS': [
+            BASE_DIR / 'templates',
+            BASE_DIR / 'templates' / 'notifications', 
+        ],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -183,16 +186,6 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
 ]
 
-
-# Email Configuration
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = config('EMAIL_HOST', default='smtp.gmail.com')
-EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
-EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
-EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
-EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
-DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@umrahchalo.com')
-
 # Celery Configuration
 CELERY_BROKER_URL = config('REDIS_URL', default='redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = config('REDIS_URL', default='redis://localhost:6379/0')
@@ -246,11 +239,49 @@ PAYMENT_GATEWAY_SETTINGS = {
 }
 STRIPE_PUBLIC_KEY = config('STRIPE_PUBLIC_KEY', default='')
 STRIPE_SECRET_KEY = config('STRIPE_SECRET_KEY', default='')
+# Add these to your Django settings.py file
 
+# Email Configuration for Notifications
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'  # or your SMTP server
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = 'your-email@gmail.com'
+EMAIL_HOST_PASSWORD = 'your-app-password'
+DEFAULT_FROM_EMAIL = 'Umrah Chalo <noreply@umrahchalo.com>'
+
+# Notification System Settings
+NOTIFICATION_SETTINGS = {
+    'DEFAULT_FROM_EMAIL': DEFAULT_FROM_EMAIL,
+    'SUPPORT_EMAIL': 'support@umrahchalo.com',
+    'COMPANY_NAME': 'Umrah Chalo',
+    'FRONTEND_URL': 'https://your-domain.com',
+    'APP_DOWNLOAD_URL': 'https://play.google.com/store/apps/details?id=com.umrahchalo',
+    'MAX_RETRIES': 3,
+    'RETRY_DELAY_MINUTES': [5, 15, 45],  # Exponential backoff
+    'CLEANUP_DAYS': {
+        'notifications': 180,  # 6 months
+        'logs': 90,  # 3 months
+    },
+    'DIGEST_SETTINGS': {
+        'max_notifications_in_digest': 10,
+        'digest_time': {
+            'daily': {'hour': 8, 'minute': 0},
+            'weekly': {'hour': 8, 'minute': 0, 'day_of_week': 1},  # Monday
+        }
+    }
+}
 # SMS Configuration (Twilio)
-TWILIO_ACCOUNT_SID = config('TWILIO_ACCOUNT_SID', default='')
-TWILIO_AUTH_TOKEN = config('TWILIO_AUTH_TOKEN', default='')
-TWILIO_PHONE_NUMBER = config('TWILIO_PHONE_NUMBER', default='')
+TWILIO_ACCOUNT_SID = 'AC670c0b8f4d019125e428b8cca1d26cec'
+TWILIO_AUTH_TOKEN = "2ced98ad055d4bc5605aa0a9d9eb98d7"
+TWILIO_PHONE_NUMBER = "+19808426653"
+
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = 'hajjumrahservice072@gmail.com'
+EMAIL_HOST_PASSWORD = 'pjrnsuqeoqnglohc'  
 
 # File Upload Configuration
 FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024  # 5MB

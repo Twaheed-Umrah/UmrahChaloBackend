@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
 from apps.core.models import BaseModel
-
+from apps.authentication.models import ServiceProviderProfile
 User = get_user_model()
 
 
@@ -36,6 +36,13 @@ class Review(BaseModel):
         related_name='reviews',
         null=True, 
         blank=True
+    )
+    provider = models.ForeignKey(
+        ServiceProviderProfile,
+        on_delete=models.CASCADE,
+        related_name='reviews',
+        null=True,
+    blank=True
     )
     package = models.ForeignKey(
         'packages.Package', 

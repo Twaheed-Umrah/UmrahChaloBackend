@@ -1,0 +1,1 @@
+✅ Congratulations! {{ business_name }} has been verified. You can now access all premium features.

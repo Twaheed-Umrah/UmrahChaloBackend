@@ -4,188 +4,179 @@ from django.conf import settings
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from django.utils import timezone
+from datetime import timedelta
 import logging
+
+from .services import NotificationService
+from .models import Notification, NotificationLog
 
 logger = logging.getLogger(__name__)
 
 
-@shared_task
-def send_lead_notification(distribution_id, notification_type):
+@shared_task(bind=True, max_retries=3)
+def send_notification_task(self, notification_id):
     """
-    Send lead notification to service provider
+    Send individual notification using new notification service
     """
     try:
-        from apps.leads.models import LeadDistribution, LeadInteraction
+        logger.info(f"Processing notification task for ID: {notification_id}")
+        success = NotificationService.send_notification(notification_id)
         
-        if notification_type == 'follow_up_reminder':
-            # Handle follow-up reminder notifications
-            interaction = LeadInteraction.objects.get(id=distribution_id)
-            provider = interaction.distribution.provider
-            lead = interaction.distribution.lead
-            
-            subject = f"Follow-up Reminder - Lead #{lead.id}"
-            message = f"""
-            Dear {provider.business_name},
-            
-            This is a reminder to follow up on lead #{lead.id}.
-            
-            Customer: {lead.customer_name}
-            Phone: {lead.phone}
-            Email: {lead.email}
-            Service: {lead.service.name if lead.service else 'Custom Request'}
-            
-            Follow-up scheduled for: {interaction.follow_up_date.strftime('%Y-%m-%d %H:%M')}
-            
-            Please log in to your dashboard to view full details and update the lead status.
-            
-            Best regards,
-            Umrah Chalo Team
-            """
-            
-        else:
-            # Handle new lead notifications
-            distribution = LeadDistribution.objects.get(id=distribution_id)
-            provider = distribution.provider
-            lead = distribution.lead
-            
-            if notification_type == 'new_lead':
-                subject = f"New Lead Received - #{lead.id}"
-                message = f"""
-                Dear {provider.business_name},
-                
-                You have received a new lead!
-                
-                Lead Details:
-                - Customer: {lead.customer_name}
-                - Phone: {lead.phone}
-                - Email: {lead.email}
-                - Service: {lead.service.name if lead.service else lead.package.name if lead.package else 'Custom Request'}
-                - Budget: {lead.budget if lead.budget else 'Not specified'}
-                - Travel Date: {lead.travel_date.strftime('%Y-%m-%d') if lead.travel_date else 'Not specified'}
-                - Message: {lead.message or 'No additional message'}
-                
-                Please log in to your dashboard to view full details and respond to this lead.
-                
-                Dashboard URL: {settings.FRONTEND_URL}/provider/dashboard/leads/
-                
-                Best regards,
-                Umrah Chalo Team
-                """
-            
-            elif notification_type == 'lead_response':
-                subject = f"Lead Response Required - #{lead.id}"
-                message = f"""
-                Dear {provider.business_name},
-                
-                Customer {lead.customer_name} is waiting for your response to lead #{lead.id}.
-                
-                Please respond as soon as possible to maintain good customer service.
-                
-                Dashboard URL: {settings.FRONTEND_URL}/provider/dashboard/leads/{lead.id}/
-                
-                Best regards,
-                Umrah Chalo Team
-                """
-            
-            else:
-                logger.warning(f"Unknown notification type: {notification_type}")
-                return f"Unknown notification type: {notification_type}"
+        if not success:
+            # Only raise exception if notification completely failed
+            try:
+                notification = Notification.objects.get(id=notification_id)
+                # If at least app notification worked, don't retry
+                if notification.app_sent:
+                    logger.info(f"Notification {notification_id} partially successful (app notification sent)")
+                    return f"Notification {notification_id} partially sent (app notification successful)"
+                else:
+                    raise Exception(f"All channels failed for notification {notification_id}")
+            except Notification.DoesNotExist:
+                raise Exception(f"Notification {notification_id} not found")
         
-        # Send email notification
-        send_mail(
-            subject,
-            message,
-            settings.DEFAULT_FROM_EMAIL,
-            [provider.user.email],
-            fail_silently=False,
-        )
-        
-        # Log the notification
-        logger.info(f"Sent {notification_type} notification to {provider.business_name}")
-        
-        return f"Notification sent successfully to {provider.business_name}"
+        return f"Notification {notification_id} sent successfully"
         
     except Exception as e:
-        logger.error(f"Error sending notification: {str(e)}")
-        return f"Error sending notification: {str(e)}"
+        logger.error(f"Error in send_notification_task for {notification_id}: {str(e)}")
+        
+        if self.request.retries < self.max_retries:
+            # Exponential backoff: 60s, 300s, 900s
+            countdown = 60 * (2 ** self.request.retries)
+            logger.info(f"Retrying notification {notification_id} in {countdown} seconds (attempt {self.request.retries + 1})")
+            raise self.retry(countdown=countdown, exc=e)
+        else:
+            # Mark notification as failed after max retries
+            try:
+                notification = Notification.objects.get(id=notification_id)
+                if hasattr(notification, 'mark_as_failed'):
+                    notification.mark_as_failed()
+                    notification.save()
+                logger.error(f"Notification {notification_id} failed after {self.max_retries} retries")
+            except Notification.DoesNotExist:
+                logger.error(f"Notification {notification_id} not found during failure handling")
+            except Exception as save_error:
+                logger.error(f"Error marking notification as failed: {save_error}")
+            raise
 
 
 @shared_task
-def send_bulk_notifications(provider_ids, notification_type, context=None):
+def send_lead_notification(lead_id, provider_id, notification_type='lead_received'):
     """
-    Send bulk notifications to multiple providers
+    Send lead notification to service provider using new notification service
     """
     try:
-        from apps.authentication.models import ServiceProviderProfile
+        from apps.leads.models import Lead
+        from apps.authentication.models import User
         
-        providers = ServiceProviderProfile.objects.filter(id__in=provider_ids)
+        lead = Lead.objects.get(id=lead_id)
+        provider = User.objects.get(id=provider_id)
+        
+        logger.info(f"Sending {notification_type} notification for lead {lead_id} to provider {provider_id}")
+        
+        # Use the new notification service
+        notification = NotificationService.send_lead_received_notification(lead, provider)
+        
+        return f"Lead notification sent successfully to {provider.email} (Notification ID: {notification.id})"
+        
+    except Exception as e:
+        logger.error(f"Error sending lead notification: {str(e)}")
+        return f"Error sending lead notification: {str(e)}"
+
+
+@shared_task
+def send_package_status_notification_task(package_id, status):
+    """
+    Send package status notification using new notification service
+    """
+    try:
+        from apps.packages.models import Package
+        
+        package = Package.objects.get(id=package_id)
+        
+        logger.info(f"Sending package {status} notification for package {package_id}")
+        
+        notification = NotificationService.send_package_status_notification(package, status)
+        
+        return f"Package status notification sent successfully (Notification ID: {notification.id})"
+        
+    except Exception as e:
+        logger.error(f"Error sending package status notification: {str(e)}")
+        return f"Error sending package status notification: {str(e)}"
+
+
+@shared_task
+def send_welcome_notification_task(user_id):
+    """
+    Send welcome notification using new notification service
+    """
+    try:
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        
+        user = User.objects.get(id=user_id)
+        
+        logger.info(f"Sending welcome notification to user {user_id}")
+        
+        notification = NotificationService.send_welcome_notification(user)
+        
+        return f"Welcome notification sent successfully to {user.email} (Notification ID: {notification.id})"
+        
+    except Exception as e:
+        logger.error(f"Error sending welcome notification: {str(e)}")
+        return f"Error sending welcome notification: {str(e)}"
+
+
+@shared_task
+def send_bulk_notifications(notification_data):
+    """
+    Send bulk notifications using new notification service
+    """
+    try:
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        
+        target_user_type = notification_data.get('target_user_type', 'all')
+        notification_type = notification_data.get('notification_type', 'system_notification')
+        title = notification_data.get('title', 'System Notification')
+        message = notification_data.get('message', '')
+        filters = notification_data.get('filters', {})
+        
+        # Get target users
+        users_query = User.objects.filter(is_active=True)
+        
+        if target_user_type != 'all':
+            users_query = users_query.filter(user_type=target_user_type)
+        
+        if filters:
+            users_query = users_query.filter(**filters)
+        
+        users = users_query.all()
         sent_count = 0
+        failed_count = 0
         
-        for provider in providers:
+        logger.info(f"Sending bulk notification to {len(users)} users")
+        
+        for user in users:
             try:
-                if notification_type == 'subscription_expiry':
-                    subject = "Subscription Expiry Reminder"
-                    message = f"""
-                    Dear {provider.business_name},
-                    
-                    Your subscription is expiring soon. Please renew to continue receiving leads.
-                    
-                    Expiry Date: {context.get('expiry_date', 'N/A')}
-                    
-                    Renew now: {settings.FRONTEND_URL}/provider/subscription/
-                    
-                    Best regards,
-                    Umrah Chalo Team
-                    """
-                
-                elif notification_type == 'system_maintenance':
-                    subject = "System Maintenance Notification"
-                    message = f"""
-                    Dear {provider.business_name},
-                    
-                    We will be performing system maintenance on {context.get('maintenance_date', 'TBD')}.
-                    
-                    Duration: {context.get('duration', 'TBD')}
-                    
-                    During this time, some features may be temporarily unavailable.
-                    
-                    Best regards,
-                    Umrah Chalo Team
-                    """
-                
-                elif notification_type == 'new_features':
-                    subject = "New Features Available"
-                    message = f"""
-                    Dear {provider.business_name},
-                    
-                    We've added new features to improve your experience:
-                    
-                    {context.get('features', 'Check your dashboard for details')}
-                    
-                    Log in to explore: {settings.FRONTEND_URL}/provider/dashboard/
-                    
-                    Best regards,
-                    Umrah Chalo Team
-                    """
-                
-                else:
-                    continue
-                
-                send_mail(
-                    subject,
-                    message,
-                    settings.DEFAULT_FROM_EMAIL,
-                    [provider.user.email],
-                    fail_silently=False,
+                notification = NotificationService.create_notification(
+                    recipient=user,
+                    notification_type=notification_type,
+                    title=title,
+                    message=message,
+                    data=notification_data.get('data', {}),
+                    send_immediately=True
                 )
-                
                 sent_count += 1
                 
-            except Exception as e:
-                logger.error(f"Error sending notification to {provider.business_name}: {str(e)}")
+            except Exception as user_error:
+                logger.error(f"Error sending bulk notification to user {user.id}: {user_error}")
+                failed_count += 1
                 continue
         
-        return f"Bulk notification sent to {sent_count} providers"
+        result = f"Bulk notification completed: {sent_count} sent, {failed_count} failed"
+        logger.info(result)
+        return result
         
     except Exception as e:
         logger.error(f"Error in bulk notification: {str(e)}")
@@ -193,63 +184,162 @@ def send_bulk_notifications(provider_ids, notification_type, context=None):
 
 
 @shared_task
+def send_subscription_expiry_notifications():
+    """
+    Check for expiring subscriptions and send notifications
+    """
+    try:
+        from apps.subscriptions.models import Subscription
+        
+        # Get subscriptions expiring in next 7 days
+        expiry_date = timezone.now().date() + timedelta(days=7)
+        expiring_subscriptions = Subscription.objects.filter(
+            end_date__lte=expiry_date,
+            is_active=True
+        )
+        
+        sent_count = 0
+        
+        for subscription in expiring_subscriptions:
+            try:
+                notification = NotificationService.send_subscription_expiry_notification(subscription)
+                sent_count += 1
+            except Exception as sub_error:
+                logger.error(f"Error sending subscription expiry notification: {sub_error}")
+                continue
+        
+        result = f"Subscription expiry notifications sent: {sent_count}"
+        logger.info(result)
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error checking subscription expiry: {str(e)}")
+        return f"Error checking subscription expiry: {str(e)}"
+
+
+@shared_task
+def send_payment_notification_task(payment_id, status):
+    """
+    Send payment notification using new notification service
+    """
+    try:
+        from apps.payments.models import Payment
+        
+        payment = Payment.objects.get(id=payment_id)
+        
+        logger.info(f"Sending payment {status} notification for payment {payment_id}")
+        
+        notification = NotificationService.send_payment_notification(payment, status)
+        
+        return f"Payment notification sent successfully (Notification ID: {notification.id})"
+        
+    except Exception as e:
+        logger.error(f"Error sending payment notification: {str(e)}")
+        return f"Error sending payment notification: {str(e)}"
+
+
+@shared_task
+def send_review_notification_task(review_id):
+    """
+    Send new review notification using new notification service
+    """
+    try:
+        from apps.reviews.models import Review
+        
+        review = Review.objects.get(id=review_id)
+        
+        logger.info(f"Sending review notification for review {review_id}")
+        
+        notification = NotificationService.send_new_review_notification(review)
+        
+        return f"Review notification sent successfully (Notification ID: {notification.id})"
+        
+    except Exception as e:
+        logger.error(f"Error sending review notification: {str(e)}")
+        return f"Error sending review notification: {str(e)}"
+
+
+@shared_task
+def send_verification_complete_notification_task(provider_id):
+    """
+    Send verification complete notification using new notification service
+    """
+    try:
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        
+        provider = User.objects.get(id=provider_id)
+        
+        logger.info(f"Sending verification complete notification to provider {provider_id}")
+        
+        notification = NotificationService.send_verification_complete_notification(provider)
+        
+        return f"Verification notification sent successfully (Notification ID: {notification.id})"
+        
+    except Exception as e:
+        logger.error(f"Error sending verification notification: {str(e)}")
+        return f"Error sending verification notification: {str(e)}"
+
+
+# Legacy support tasks (keeping for backward compatibility)
+@shared_task
 def send_customer_notification(lead_id, notification_type):
     """
-    Send notifications to customers
+    Send notifications to customers (legacy support)
     """
     try:
         from apps.leads.models import Lead
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
         
         lead = Lead.objects.get(id=lead_id)
         
+        # Try to get user by email, otherwise use lead info
+        try:
+            user = User.objects.get(email=lead.email)
+        except User.DoesNotExist:
+            # Create a temporary user object for notification
+            user = User(email=lead.email, full_name=lead.customer_name)
+            user.id = 0  # Temporary ID
+        
         if notification_type == 'lead_confirmed':
-            subject = "Lead Submission Confirmed"
-            message = f"""
-            Dear {lead.customer_name},
-            
-            Thank you for submitting your inquiry through Umrah Chalo.
-            
-            Your request has been received and will be forwarded to relevant service providers.
-            
-            Reference ID: #{lead.id}
-            
-            You should expect to hear from service providers within 24-48 hours.
-            
-            Best regards,
-            Umrah Chalo Team
-            """
+            title = "Lead Submission Confirmed"
+            message = f"Thank you for submitting your inquiry through Umrah Chalo. Reference ID: #{lead.id}"
+            notif_type = 'lead_confirmed'
             
         elif notification_type == 'provider_response':
-            subject = "Service Provider Response Received"
-            message = f"""
-            Dear {lead.customer_name},
-            
-            A service provider has responded to your inquiry (Reference: #{lead.id}).
-            
-            Please check your email and phone for direct communication from the provider.
-            
-            If you need any assistance, please contact our support team.
-            
-            Best regards,
-            Umrah Chalo Team
-            """
+            title = "Service Provider Response Received"
+            message = f"A service provider has responded to your inquiry (Reference: #{lead.id})"
+            notif_type = 'provider_response'
             
         else:
             logger.warning(f"Unknown customer notification type: {notification_type}")
             return f"Unknown notification type: {notification_type}"
         
-        # Send email to customer
-        send_mail(
-            subject,
-            message,
-            settings.DEFAULT_FROM_EMAIL,
-            [lead.email],
-            fail_silently=False,
-        )
-        
-        logger.info(f"Sent {notification_type} notification to customer {lead.customer_name}")
-        
-        return f"Customer notification sent successfully"
+        # Use new notification service if user exists in database
+        if user.id > 0:
+            notification = NotificationService.create_notification(
+                recipient=user,
+                notification_type=notif_type,
+                title=title,
+                message=message,
+                data={
+                    'lead_id': lead.id,
+                    'customer_name': lead.customer_name
+                },
+                related_object=lead
+            )
+            return f"Customer notification sent via notification service (ID: {notification.id})"
+        else:
+            # Fallback to direct email for non-registered users
+            send_mail(
+                title,
+                message,
+                settings.DEFAULT_FROM_EMAIL,
+                [lead.email],
+                fail_silently=False,
+            )
+            return f"Customer notification sent via direct email"
         
     except Exception as e:
         logger.error(f"Error sending customer notification: {str(e)}")
@@ -264,65 +354,49 @@ def send_admin_notification(notification_type, context=None):
     try:
         from django.contrib.auth import get_user_model
         User = get_user_model()
-
         
         # Get admin users
         admin_users = User.objects.filter(is_staff=True, is_superuser=True)
+        sent_count = 0
         
         if notification_type == 'new_provider_registration':
-            subject = "New Provider Registration"
-            provider_name = context.get('provider_name', 'Unknown')
-            message = f"""
-            New service provider has registered: {provider_name}
-            
-            Please review and approve the registration.
-            
-            Admin Panel: {settings.FRONTEND_URL}/admin/
-            """
+            title = "New Provider Registration"
+            message = f"New service provider has registered: {context.get('provider_name', 'Unknown')}"
+            notif_type = 'admin_new_provider'
             
         elif notification_type == 'high_lead_volume':
-            subject = "High Lead Volume Alert"
-            lead_count = context.get('lead_count', 0)
-            message = f"""
-            High lead volume detected: {lead_count} leads in the last hour.
-            
-            Please monitor system performance.
-            
-            Admin Panel: {settings.FRONTEND_URL}/admin/
-            """
+            title = "High Lead Volume Alert"
+            message = f"High lead volume detected: {context.get('lead_count', 0)} leads in the last hour"
+            notif_type = 'admin_high_volume'
             
         elif notification_type == 'system_error':
-            subject = "System Error Alert"
-            error_message = context.get('error', 'Unknown error')
-            message = f"""
-            System error detected:
-            
-            Error: {error_message}
-            
-            Please investigate immediately.
-            """
+            title = "System Error Alert"
+            message = f"System error detected: {context.get('error', 'Unknown error')}"
+            notif_type = 'admin_system_error'
             
         else:
             logger.warning(f"Unknown admin notification type: {notification_type}")
             return f"Unknown notification type: {notification_type}"
         
-        # Send to all admin users
-        admin_emails = [user.email for user in admin_users if user.email]
+        # Send to all admin users using notification service
+        for admin_user in admin_users:
+            try:
+                notification = NotificationService.create_notification(
+                    recipient=admin_user,
+                    notification_type=notif_type,
+                    title=title,
+                    message=message,
+                    data=context or {},
+                    priority='high'
+                )
+                sent_count += 1
+            except Exception as admin_error:
+                logger.error(f"Error sending admin notification to {admin_user.email}: {admin_error}")
+                continue
         
-        if admin_emails:
-            send_mail(
-                subject,
-                message,
-                settings.DEFAULT_FROM_EMAIL,
-                admin_emails,
-                fail_silently=False,
-            )
-            
-            logger.info(f"Sent {notification_type} notification to {len(admin_emails)} admins")
-            return f"Admin notification sent to {len(admin_emails)} users"
-        else:
-            logger.warning("No admin emails found")
-            return "No admin emails found"
+        result = f"Admin notification sent to {sent_count} users"
+        logger.info(result)
+        return result
         
     except Exception as e:
         logger.error(f"Error sending admin notification: {str(e)}")
@@ -335,18 +409,21 @@ def send_sms_notification(phone_number, message):
     Send SMS notification (placeholder for SMS service integration)
     """
     try:
-        # TODO: Integrate with SMS service (Twilio, AWS SNS, etc.)
-        # For now, just log the message
-        logger.info(f"SMS to {phone_number}: {message}")
-        
-        # Example integration with Twilio:
-        # from twilio.rest import Client
-        # client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
-        # client.messages.create(
-        #     body=message,
-        #     from_=settings.TWILIO_PHONE_NUMBER,
-        #     to=phone_number
-        # )
+        # TODO: Integrate with Twilio
+        if hasattr(settings, 'TWILIO_ACCOUNT_SID') and settings.TWILIO_ACCOUNT_SID:
+            from twilio.rest import Client
+            client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+            
+            client.messages.create(
+                body=message,
+                from_=settings.TWILIO_PHONE_NUMBER,
+                to=phone_number
+            )
+            
+            logger.info(f"SMS sent successfully to {phone_number}")
+        else:
+            # Log for development
+            logger.info(f"SMS to {phone_number}: {message}")
         
         return f"SMS sent successfully to {phone_number}"
         
@@ -362,7 +439,6 @@ def send_whatsapp_notification(phone_number, message):
     """
     try:
         # TODO: Integrate with WhatsApp Business API
-        # For now, just log the message
         logger.info(f"WhatsApp to {phone_number}: {message}")
         
         return f"WhatsApp message sent successfully to {phone_number}"
@@ -375,20 +451,73 @@ def send_whatsapp_notification(phone_number, message):
 @shared_task
 def cleanup_old_notifications():
     """
-    Clean up old notification logs (if you have a notification model)
+    Clean up old notification logs
     """
     try:
-        from datetime import timedelta
+        cutoff_date = timezone.now() - timedelta(days=90)
         
-        # TODO: If you have a Notification model, clean up old records
-        # cutoff_date = timezone.now() - timedelta(days=90)
-        # old_notifications = Notification.objects.filter(created_at__lt=cutoff_date)
-        # deleted_count = old_notifications.count()
-        # old_notifications.delete()
+        # Clean up old notifications
+        old_notifications = Notification.objects.filter(created_at__lt=cutoff_date)
+        notification_count = old_notifications.count()
+        old_notifications.delete()
         
-        logger.info("Notification cleanup completed")
-        return "Notification cleanup completed"
+        # Clean up old logs
+        old_logs = NotificationLog.objects.filter(created_at__lt=cutoff_date)
+        log_count = old_logs.count()
+        old_logs.delete()
+        
+        result = f"Cleanup completed: {notification_count} notifications, {log_count} logs deleted"
+        logger.info(result)
+        return result
         
     except Exception as e:
         logger.error(f"Error in notification cleanup: {str(e)}")
         return f"Error in notification cleanup: {str(e)}"
+
+
+@shared_task
+def send_package_upload_reminders():
+    """
+    Send reminders to service providers who haven't uploaded packages
+    """
+    try:
+        from django.contrib.auth import get_user_model
+        from apps.packages.models import Package
+        User = get_user_model()
+        
+        # Get service providers who haven't uploaded packages in last 30 days
+        thirty_days_ago = timezone.now() - timedelta(days=30)
+        
+        providers_without_recent_packages = User.objects.filter(
+            user_type='service_provider',
+            is_active=True
+        ).exclude(
+            packages__created_at__gte=thirty_days_ago
+        ).distinct()
+        
+        sent_count = 0
+        
+        for provider in providers_without_recent_packages:
+            try:
+                notification = NotificationService.create_notification(
+                    recipient=provider,
+                    notification_type='package_upload_reminder',
+                    title="Upload New Packages",
+                    message="It's been a while since you uploaded new packages. Upload fresh packages to attract more customers!",
+                    data={
+                        'provider_name': provider.full_name,
+                        'dashboard_url': f"{getattr(settings, 'FRONTEND_URL', '')}/provider/dashboard/"
+                    }
+                )
+                sent_count += 1
+            except Exception as provider_error:
+                logger.error(f"Error sending package upload reminder to {provider.email}: {provider_error}")
+                continue
+        
+        result = f"Package upload reminders sent to {sent_count} providers"
+        logger.info(result)
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error sending package upload reminders: {str(e)}")
+        return f"Error sending package upload reminders: {str(e)}"

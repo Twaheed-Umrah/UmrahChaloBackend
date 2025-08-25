@@ -1,0 +1,33 @@
+UMRAH CHALO - PACKAGE NEEDS REVIEW
+
+Assalam-o-Alaikum {{provider_name}},
+
+Your package requires some updates
+
+Package Review Required: We have reviewed your Umrah package submission and found some areas that need attention before approval.
+
+PACKAGE DETAILS:
+- Package Name: {{package_name}}
+- Submitted On: {{submission_date}}
+- Review Date: {{review_date}}
+
+ISSUES FOUND:
+{{rejection_reasons}}
+
+What you need to do:
+- Review the feedback above carefully
+- Make the necessary corrections to your package
+- Resubmit your package for review
+- Ensure all information is accurate and complete
+
+Edit your package: {{edit_package_url}}
+
+Our quality standards ensure customers receive the best Umrah experience possible.
+
+We are here to help you succeed. Please feel free to contact our support team if you need assistance.
+
+---
+Quality service for sacred journeys
+UMRAH CHALO - Your trusted Umrah partner
+
+Support: support@umrahchalo.com

@@ -1,0 +1,32 @@
+UMRAH CHALO - PACKAGE APPROVED!
+
+Assalam-o-Alaikum {{provider_name}},
+
+Congratulations! Your package is now live
+
+Great news! Your Umrah package has been approved and is now visible to customers on Umrah Chalo.
+
+PACKAGE DETAILS:
+- Package Name: {{package_name}}
+- Duration: {{package_duration}}
+- Price: {{package_price}}
+- Approved On: {{approval_date}}
+
+What Next?
+- Your package is now searchable by customers
+- You will start receiving inquiries and bookings
+- Maintain high service quality for better reviews
+- Update package details anytime from your dashboard
+
+View your package: {{package_url}}
+Go to dashboard: {{dashboard_url}}
+
+TIP: Respond quickly to inquiries to increase your booking success rate!
+
+May Allah bless your efforts in facilitating the sacred journey of Umrah.
+
+---
+Start receiving bookings now
+UMRAH CHALO - Your trusted Umrah partner
+
+Contact: support@umrahchalo.com

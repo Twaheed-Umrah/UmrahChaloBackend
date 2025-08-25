@@ -198,6 +198,8 @@ class ServiceFilter(django_filters.FilterSet):
             ('views_count', 'views_count'),
             ('leads_count', 'leads_count'),
             ('departure_date', 'departure_date'),
+            ('is_featured', 'is_featured'),  # <-- add this
+            ('is_popular', 'is_popular'),
         ),
         field_labels={
             'created_at': 'Created Date',
@@ -207,6 +209,8 @@ class ServiceFilter(django_filters.FilterSet):
             'views_count': 'Views Count',
             'leads_count': 'Leads Count',
             'departure_date': 'Departure Date',
+            'is_featured': 'Featured',       # <-- optional label
+        'is_popular': 'Popular',         
         }
     )
     
@@ -593,6 +597,8 @@ class ServiceAnalyticsFilter(django_filters.FilterSet):
             ('views_count', 'views_count'),
             ('leads_count', 'leads_count'),
             ('title', 'title'),
+            ('is_featured', 'is_featured'),  # <-- add this
+            ('is_popular', 'is_popular'),
         ),
         field_labels={
             'created_at': 'Created Date',
@@ -601,6 +607,8 @@ class ServiceAnalyticsFilter(django_filters.FilterSet):
             'views_count': 'Views Count',
             'leads_count': 'Leads Count',
             'title': 'Title',
+            'is_featured': 'Featured',       # <-- optional label
+        'is_popular': 'Popular',         
         }
     )
     

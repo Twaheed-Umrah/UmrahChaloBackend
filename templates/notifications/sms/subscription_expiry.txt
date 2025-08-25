@@ -1,0 +1,1 @@
+⚠️ Your {{ plan_name }} subscription expires in {{ days_left }} days ({{ end_date }}). Renew now to avoid interruption.

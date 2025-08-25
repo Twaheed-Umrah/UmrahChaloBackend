@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to Umrah Chalo</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 20px;
+        }
+        
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #1B7B4C 0%, #2E8B57 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+            font-weight: 600;
+        }
+        
+        .brand-name {
+            font-size: 20px;
+            margin-top: 15px;
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .content h2 {
+            color: #2c3e50;
+            margin-top: 0;
+            margin-bottom: 20px;
+            font-size: 22px;
+        }
+        
+        .welcome-box {
+            background: linear-gradient(135deg, #e8f5e8 0%, #d4edda 100%);
+            border-left: 4px solid #1B7B4C;
+            padding: 25px;
+            margin: 20px 0;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .steps-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 15px;
+            margin: 25px 0;
+        }
+        
+        .step-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #1B7B4C;
+            display: flex;
+            align-items: center;
+        }
+        
+        .step-number {
+            background: #1B7B4C;
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-right: 15px;
+            flex-shrink: 0;
+        }
+        
+        .features-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin: 25px 0;
+        }
+        
+        .feature-card {
+            background: #ffffff;
+            padding: 20px;
+            border-radius: 8px;
+            border: 2px solid #e9ecef;
+            text-align: center;
+        }
+        
+        .feature-icon {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #1B7B4C 0%, #2E8B57 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            margin: 15px 0;
+            transition: all 0.3s ease;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(27, 123, 76, 0.3);
+        }
+        
+        .contact-info {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 25px 0;
+        }
+        
+        .footer {
+            background: #1B7B4C;
+            color: white;
+            padding: 20px 30px;
+            text-align: center;
+            font-size: 14px;
+        }
+        
+        .umrah-icon {
+            font-size: 24px;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="header">
+            <h1><span class="umrah-icon">🕌</span> Welcome to Umrah Chalo!</h1>
+            <div class="brand-name">Your trusted Umrah partner</div>
+        </div>
+        <div class="content">
+            <h2>Assalam-o-Alaikum {{user_name}},</h2>
+            
+            <div class="welcome-box">
+                <h3 style="color: #1B7B4C; margin-top: 0;">Welcome to the Umrah Chalo family!</h3>
+                <p style="margin-bottom: 0;">Thank you for joining us. We're honored to be part of your journey in serving pilgrims on their sacred path to the Holy Kaaba.</p>
+            </div>
+            
+            <p>You've taken the first step towards building a successful Umrah business. Our platform connects you with thousands of Muslims seeking authentic and reliable Umrah experiences.</p>
+            
+            <div class="steps-grid">
+                <div class="step-card">
+                    <div class="step-number">1</div>
+                    <div>
+                        <strong>Complete Your Profile</strong><br>
+                        Add your business information, photos, and credentials to build trust with customers.
+                    </div>
+                </div>
+                <div class="step-card">
+                    <div class="step-number">2</div>
+                    <div>
+                        <strong>Get Verified</strong><br>
+                        Submit your documents for verification to earn the trusted provider badge.
+                    </div>
+                </div>
+                <div class="step-card">
+                    <div class="step-number">3</div>
+                    <div>
+                        <strong>Upload Packages</strong><br>
+                        Create compelling Umrah packages with detailed descriptions and competitive pricing.
+                    </div>
+                </div>
+                <div class="step-card">
+                    <div class="step-number">4</div>
+                    <div>
+                        <strong>Start Receiving Bookings</strong><br>
+                        Get inquiries from customers and convert them into confirmed bookings.
+                    </div>
+                </div>
+            </div>
+            
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <strong>Analytics Dashboard</strong>
+                    <p>Track your performance and bookings</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">💬</div>
+                    <strong>Direct Messaging</strong>
+                    <p>Communicate with customers instantly</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">⭐</div>
+                    <strong>Review System</strong>
+                    <p>Build reputation through customer feedback</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📱</div>
+                    <strong>Mobile Friendly</strong>
+                    <p>Manage your business on the go</p>
+                </div>
+            </div>
+            
+            <div style="text-align: center;">
+                <a href="{{dashboard_url}}" class="btn">Complete Your Profile</a>
+                <a href="{{help_url}}" class="btn" style="margin-left: 10px;">Get Help</a>
+            </div>
+            
+            <div class="contact-info">
+                <h3>🤝 Need Help Getting Started?</h3>
+                <p>Our support team is here to help you succeed:</p>
+                <ul>
+                    <li><strong>Email:</strong> support@umrahchalo.com</li>
+                    <li><strong>Phone:</strong> {{support_phone}}</li>
+                    <li><strong>WhatsApp:</strong> {{whatsapp_number}}</li>
+                    <li><strong>Help Center:</strong> <a href="{{help_center_url}}">Visit Help Center</a></li>
+                </ul>
+            </div>
+            
+            <p><strong>📚 Helpful Resources:</strong></p>
+            <ul>
+                <li><a href="{{provider_guide_url}}">Provider Success Guide</a></li>
+                <li><a href="{{best_practices_url}}">Best Practices for Umrah Providers</a></li>
+                <li><a href="{{pricing_guide_url}}">Pricing Strategy Guide</a></li>
+                <li><a href="{{customer_service_url}}">Customer Service Tips</a></li>
+            </ul>
+            
+            <p style="font-style: italic; color: #666; margin-top: 30px;">
+                "And whoever honors the sacred ordinances of Allah - it is best for him in the sight of his Lord." (Quran 22:30)
+            </p>
+            
+            <p style="font-style: italic; color: #666;">
+                May Allah bless your efforts in facilitating the sacred journey of His servants to the Holy House.
+            </p>
+        </div>
+        <div class="footer">
+            Your success is our mission • <strong>Umrah Chalo</strong> - Your trusted Umrah partner<br>
+            <small>© 2025 Umrah Chalo. All rights reserved.</small>
+        </div>
+    </div>
+</body>
+</html>

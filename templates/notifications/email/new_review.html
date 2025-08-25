@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New Customer Review - Umrah Chalo</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 20px;
+        }
+        
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #1B7B4C 0%, #2E8B57 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        .brand-name {
+            font-size: 18px;
+            margin-top: 10px;
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .content h2 {
+            color: #2c3e50;
+            margin-top: 0;
+            margin-bottom: 20px;
+            font-size: 22px;
+        }
+        
+        .review-box {
+            background: #f8f9fa;
+            border-left: 4px solid #1B7B4C;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        .rating-stars {
+            font-size: 24px;
+            color: #FFC107;
+            margin: 10px 0;
+        }
+        
+        .review-content {
+            background: #ffffff;
+            border: 2px solid #e9ecef;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            font-style: italic;
+        }
+        
+        .customer-info {
+            background: #e8f5e8;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #1B7B4C 0%, #2E8B57 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            margin: 15px 0;
+            transition: all 0.3s ease;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(27, 123, 76, 0.3);
+        }
+        
+        .footer {
+            background: #1B7B4C;
+            color: white;
+            padding: 20px 30px;
+            text-align: center;
+            font-size: 14px;
+        }
+        
+        .umrah-icon {
+            font-size: 20px;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="header">
+            <h1><span class="umrah-icon">⭐</span> New Customer Review!</h1>
+            <div class="brand-name">Umrah Chalo</div>
+        </div>
+        <div class="content">
+            <h2>A customer has shared their experience</h2>
+            <p>Assalam-o-Alaikum {{provider_name}},</p>
+            
+            <div class="review-box">
+                <strong>You have received a new review for your Umrah package!</strong><br>
+                Building trust through authentic customer feedback.
+            </div>
+            
+            <div class="customer-info">
+                <strong>Review Details:</strong><br>
+                <strong>Customer:</strong> {{customer_name}}<br>
+                <strong>Package:</strong> {{package_name}}<br>
+                <strong>Travel Date:</strong> {{travel_date}}<br>
+                <strong>Review Date:</strong> {{review_date}}
+            </div>
+            
+            <div class="rating-stars">
+                Rating: {{star_rating}} {{rating_stars}}
+            </div>
+            
+            <div class="review-content">
+                "{{review_text}}"
+            </div>
+            
+            <p><strong>Why reviews matter:</strong></p>
+            <ul>
+                <li>Build trust with potential customers</li>
+                <li>Improve your service ranking</li>
+                <li>Get valuable feedback for improvement</li>
+                <li>Increase booking conversions by 40%</li>
+            </ul>
+            
+            <div style="text-align: center;">
+                <a href="{{review_url}}" class="btn">View Review</a>
+                <a href="{{respond_url}}" class="btn" style="margin-left: 10px;">Respond to Review</a>
+            </div>
+            
+            <p><em>💡 Consider thanking the customer and addressing any concerns professionally.</em></p>
+            
+            <p style="font-style: italic; color: #666; margin-top: 25px;">
+                Customer feedback helps us all serve pilgrims better on their sacred journey.
+            </p>
+        </div>
+        <div class="footer">
+            Build trust through excellent service • <strong>Umrah Chalo</strong> - Your trusted Umrah partner
+        </div>
+    </div>
+</body>
+</html>

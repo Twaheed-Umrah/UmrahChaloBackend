@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Package Review Required - Umrah Chalo</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 20px;
+        }
+        
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #FFC107 0%, #FF9800 100%);
+            color: #333;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        .brand-name {
+            font-size: 18px;
+            margin-top: 10px;
+            opacity: 0.8;
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .content h2 {
+            color: #2c3e50;
+            margin-top: 0;
+            margin-bottom: 20px;
+            font-size: 22px;
+        }
+        
+        .warning-box {
+            background: #fff3cd;
+            border-left: 4px solid #FFC107;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        .package-info {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        .rejection-reasons {
+            background: #f8d7da;
+            border-left: 4px solid #dc3545;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #1B7B4C 0%, #2E8B57 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            margin: 15px 0;
+            transition: all 0.3s ease;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(27, 123, 76, 0.3);
+        }
+        
+        .footer {
+            background: #1B7B4C;
+            color: white;
+            padding: 20px 30px;
+            text-align: center;
+            font-size: 14px;
+        }
+        
+        .umrah-icon {
+            font-size: 20px;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="header">
+            <h1><span class="umrah-icon">📝</span> Package Needs Review</h1>
+            <div class="brand-name">Umrah Chalo</div>
+        </div>
+        <div class="content">
+            <h2>Your package requires some updates</h2>
+            <p>Assalam-o-Alaikum {{provider_name}},</p>
+            
+            <div class="warning-box">
+                <strong>Package Review Required:</strong> We've reviewed your Umrah package submission and found some areas that need attention before approval.
+            </div>
+            
+            <div class="package-info">
+                <h3>📦 Package Details:</h3>
+                <ul>
+                    <li><strong>Package Name:</strong> {{package_name}}</li>
+                    <li><strong>Submitted On:</strong> {{submission_date}}</li>
+                    <li><strong>Review Date:</strong> {{review_date}}</li>
+                </ul>
+            </div>
+            
+            <div class="rejection-reasons">
+                <h3>🔍 Issues Found:</h3>
+                <div>{{rejection_reasons}}</div>
+            </div>
+            
+            <p><strong>What you need to do:</strong></p>
+            <ul>
+                <li>Review the feedback above carefully</li>
+                <li>Make the necessary corrections to your package</li>
+                <li>Resubmit your package for review</li>
+                <li>Ensure all information is accurate and complete</li>
+            </ul>
+            
+            <div style="text-align: center;">
+                <a href="{{edit_package_url}}" class="btn">Edit Package</a>
+            </div>
+            
+            <p><em>💡 Our quality standards ensure customers receive the best Umrah experience possible.</em></p>
+            
+            <p style="font-style: italic; color: #666; margin-top: 25px;">
+                We're here to help you succeed. Please feel free to contact our support team if you need assistance.
+            </p>
+        </div>
+        <div class="footer">
+            Quality service for sacred journeys • <strong>Umrah Chalo</strong> - Your trusted Umrah partner
+        </div>
+    </div>
+</body>
+</html>

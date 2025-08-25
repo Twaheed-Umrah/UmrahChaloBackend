@@ -1,0 +1,28 @@
+New Lead Alert!  
+Umrah Chalo  
+
+Great news! You have a new inquiry  
+
+Assalam-o-Alaikum {{provider_name}},  
+
+A potential customer is interested in your services!  
+You have received a new lead for {{service_name}}  
+
+Total Leads: {{lead_count}}  
+Avg Response: {{response_time}}  
+
+Lead Details:  
+- Customer: {{customer_name}}  
+- Service: {{service_type}}  
+- Travel Date: {{travel_date}}  
+- Group Size: {{group_size}} people  
+
+View Lead Details: {{lead_url}}  
+
+💡 Quick responses increase your booking chances by 85%!  
+
+May Allah bless your business and make this journey easy for your customers.  
+
+--  
+Umrah Chalo  
+Your trusted Umrah partner

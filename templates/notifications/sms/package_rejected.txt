@@ -1,0 +1,1 @@
+❌ Your package "{{ package_name }}" was rejected. Please review our guidelines and resubmit.

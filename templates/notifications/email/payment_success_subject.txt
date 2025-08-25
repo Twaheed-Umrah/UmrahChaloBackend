@@ -1,0 +1,39 @@
+UMRAH CHALO - PAYMENT SUCCESSFUL!
+
+Assalam-o-Alaikum {{customer_name}},
+
+Thank you for your payment
+
+Payment Confirmed! Your payment has been processed successfully. Your Umrah journey is one step closer.
+
+AMOUNT PAID: {{currency}} {{amount}}
+
+PAYMENT SUMMARY:
+- Transaction ID: {{transaction_id}}
+- Payment Method: {{payment_method}}
+- Date & Time: {{payment_date}}
+- Status: CONFIRMED
+
+BOOKING DETAILS:
+- Package: {{package_name}}
+- Travel Date: {{travel_date}}
+- Duration: {{package_duration}}
+- Travelers: {{traveler_count}} person(s)
+- Provider: {{provider_name}}
+
+Download receipt: {{receipt_url}}
+View booking: {{booking_url}}
+
+What  Next?
+- Check your email for booking confirmation
+- Your travel provider will contact you soon
+- Prepare your documents as per the checklist
+- Start planning for your blessed journey
+
+May Allah accept your Umrah and bless your journey. Taqabbal Allahu minna wa minkum.
+
+---
+Your sacred journey begins
+UMRAH CHALO - Your trusted Umrah partner
+
+Support: support@umrahchalo.com

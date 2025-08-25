@@ -5,7 +5,7 @@ from django.utils import timezone
 from django.contrib.auth import get_user_model
 
 from .models import (
-    Notification, NotificationTemplate, NotificationPreference,
+    Notification,  NotificationPreference,
     NotificationLog, BulkNotification
 )
 
@@ -219,13 +219,7 @@ class NotificationTemplateFilter(filters.FilterSet):
         method='filter_has_app_body',
         label='Has App Body'
     )
-    
-    class Meta:
-        model = NotificationTemplate
-        fields = [
-            'notification_type', 'is_active', 'send_email', 'send_sms', 'send_app'
-        ]
-    
+   
     def filter_has_email_body(self, queryset, name, value):
         """Filter templates with email body"""
         if value:

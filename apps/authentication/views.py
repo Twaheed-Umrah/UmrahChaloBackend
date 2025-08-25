@@ -28,9 +28,10 @@ from .serializers import (
     PhoneVerificationSerializer, UserManagementSerializer, BulkUserActionSerializer,LocationUpdateSerializer
 )
 from apps.core.utils import send_otp, generate_otp, get_client_ip, get_user_agent
+from .utils import send_email_otp,send_sms_otp
 from apps.core.pagination import CustomPagination
 from apps.core.permissions import IsSuperAdmin, IsProviderOrReadOnly
-
+from apps.notifications.services import NotificationService
 
 # Base Authentication Views
 class UserRegistrationView(generics.CreateAPIView):
@@ -60,7 +61,11 @@ class UserRegistrationView(generics.CreateAPIView):
             )
         except Exception as e:
             print(f"Failed to log activity: {e}")
-
+        try:
+                    NotificationService.send_welcome_notification(user)
+                    print(f"Welcome notification sent to {user.email}")
+        except Exception as e:
+                    print(f"Failed to send welcome notification: {e}")
         response_data = {
             'message': 'User registered successfully. Please check your email for verification.',
             'user_id': str(user.id),
@@ -76,18 +81,20 @@ class UserRegistrationView(generics.CreateAPIView):
 
 class UserLoginView(APIView):
     """
-    API endpoint for user login with email and password
+    API endpoint for user login with email/phone and password
     """
     permission_classes = [AllowAny]
-    
+
     def post(self, request):
         serializer = UserLoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
+
         user = serializer.validated_data['user']
+        login_method = serializer.validated_data.get('login_method')  # email or phone
+
         ip_address = get_client_ip(request)
         user_agent = get_user_agent(request)
-        
+
         # Log login attempt
         LoginAttempt.objects.create(
             email=user.email,
@@ -95,12 +102,12 @@ class UserLoginView(APIView):
             user_agent=user_agent,
             success=True
         )
-        
+
         # Generate JWT tokens
         refresh = RefreshToken.for_user(user)
         access_token = str(refresh.access_token)
         refresh_token = str(refresh)
-        
+
         # Create user session
         UserSession.objects.create(
             user=user,
@@ -109,45 +116,45 @@ class UserLoginView(APIView):
             ip_address=ip_address,
             is_active=True
         )
-        
+
         # Log activity
         UserActivity.objects.create(
             user=user,
             activity_type='login',
-            description='User logged in',
+            description=f'User logged in via {login_method}',
             ip_address=ip_address,
-            metadata={'login_method': 'password'}
+            metadata={'login_method': login_method}
         )
-        
+
         response_data = {
             'message': 'Login successful',
             'access_token': access_token,
             'refresh_token': refresh_token,
             'user': UserProfileSerializer(user).data
         }
-        
+
         # For pilgrims, check if location update is needed
         if user.user_type == 'pilgrim':
             response_data['location_update_required'] = True
             response_data['message'] += ' Please update your current location.'
-        
+
         return Response(response_data, status=status.HTTP_200_OK)
 
-
 class OTPLoginView(APIView):
-    """
-    API endpoint to request OTP for login
-    """
     permission_classes = [AllowAny]
-    
+
     def post(self, request):
         serializer = OTPLoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
-        email = serializer.validated_data['email']
-        user = User.objects.get(email=email)
-        
-        # Generate and send OTP
+
+        email = serializer.validated_data.get('email')
+        phone = serializer.validated_data.get('phone')
+
+        try:
+            user = User.objects.get(email=email) if email else User.objects.get(phone=phone)
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
         otp = generate_otp()
         OTPVerification.objects.create(
             user=user,
@@ -155,81 +162,59 @@ class OTPLoginView(APIView):
             purpose='login',
             expires_at=timezone.now() + timedelta(minutes=5)
         )
-        
-        send_otp(email, otp, 'login')
-        
-        # Log activity
-        UserActivity.objects.create(
-            user=user,
-            activity_type='otp_request',
-            description='OTP requested for login',
-            ip_address=get_client_ip(request)
-        )
-        
-        return Response({
-            'message': 'OTP sent successfully to your email.'
-        }, status=status.HTTP_200_OK)
+
+        if email:
+            send_email_otp(email, otp, "login")
+        else:
+            send_sms_otp(phone, otp)
+
+        return Response({"message": "OTP sent successfully"}, status=status.HTTP_200_OK)
 
 
 class OTPVerificationView(APIView):
-    """
-    API endpoint for OTP verification
-    """
     permission_classes = [AllowAny]
-    
+
     def post(self, request):
         serializer = OTPVerificationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
-        user = serializer.validated_data['user']
-        otp_verification = serializer.validated_data['otp_verification']
-        purpose = serializer.validated_data['purpose']
-        
-        # Mark OTP as used
-        otp_verification.is_used = True
-        otp_verification.save()
-        
-        response_data = {'message': 'OTP verified successfully'}
-        
-        # Handle different purposes
-        if purpose == 'email_verification':
-            user.is_verified = True
-            user.save()
-            response_data['message'] = 'Email verified successfully'
-        
-        elif purpose == 'login':
-            # Generate JWT tokens for login
-            refresh = RefreshToken.for_user(user)
-            access_token = str(refresh.access_token)
-            refresh_token = str(refresh)
-            
-            # Create user session
-            UserSession.objects.create(
-                user=user,
-                session_key=str(uuid.uuid4()),
-                device_info=get_user_agent(request),
-                ip_address=get_client_ip(request),
-                is_active=True
-            )
-            
-            response_data.update({
-                'access_token': access_token,
-                'refresh_token': refresh_token,
-                'user': UserProfileSerializer(user).data
-            })
-        
-        # Log activity
-        UserActivity.objects.create(
+
+        email = serializer.validated_data.get("email")
+        phone = serializer.validated_data.get("phone")
+        otp = serializer.validated_data["otp"]
+        purpose = serializer.validated_data["purpose"]
+
+        try:
+            user = User.objects.get(email=email) if email else User.objects.get(phone=phone)
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        otp_obj = OTPVerification.objects.filter(user=user, otp=otp, purpose=purpose, is_used=False).last()
+
+        if not otp_obj or otp_obj.is_expired():
+            return Response({"error": "Invalid or expired OTP"}, status=status.HTTP_400_BAD_REQUEST)
+
+        otp_obj.is_used = True
+        otp_obj.save()
+
+        # Generate JWT Tokens
+        refresh = RefreshToken.for_user(user)
+        access_token = str(refresh.access_token)
+
+        # Create Session
+        UserSession.objects.create(
             user=user,
-            activity_type='otp_verification',
-            description=f'OTP verified for {purpose}',
-            ip_address=get_client_ip(request),
-            metadata={'purpose': purpose}
+            session_key=str(uuid.uuid4()),
+            device_info=request.META.get('HTTP_USER_AGENT', ''),
+            ip_address=request.META.get('REMOTE_ADDR', '')
         )
-        
-        return Response(response_data, status=status.HTTP_200_OK)
 
-
+        return Response({
+            "message": "OTP verified successfully",
+            "access_token": access_token,
+            "refresh_token": str(refresh),
+            'user': UserProfileSerializer(user).data
+        }, status=status.HTTP_200_OK)
+    
 class PasswordResetView(APIView):
     """
     API endpoint to request password reset
@@ -477,22 +462,46 @@ class ServiceProviderRegistrationView(generics.CreateAPIView):
     queryset = ServiceProviderProfile.objects.all()
     serializer_class = ServiceProviderRegistrationSerializer
     permission_classes = [AllowAny]
-    
+
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         provider = serializer.save()
-        
+        user = provider.user  # The related user object
+
+        # Log service provider activity
+        try:
+            UserActivity.objects.create(
+                user=user,
+                activity_type='registration',
+                description='Service provider registered',
+                ip_address=get_client_ip(request),
+                metadata={
+                    'user_type': user.user_type,
+                    'has_location': user.has_location
+                }
+            )
+        except Exception as e:
+            print(f"Failed to log activity: {e}")
+
+        # Send welcome notification
+        try:
+            NotificationService.send_welcome_notification(user)
+            print(f"Welcome notification sent to {user.email}")
+        except Exception as e:
+            print(f"Failed to send welcome notification: {e}")
+
+        # Prepare response
         response_data = {
             'message': 'Service provider registered successfully. Please check your email for verification.',
             'provider_id': provider.id,
-            'user_id': provider.user.id,
-            'email': provider.user.email
+            'user_id': str(user.id),
+            'email': user.email
         }
-        
-        if provider.user.has_location:
-            response_data['location'] = provider.user.get_location_info()
-        
+
+        if user.has_location:
+            response_data['location'] = user.get_location_info()
+
         return Response(response_data, status=status.HTTP_201_CREATED)
 
 
@@ -1163,7 +1172,7 @@ class ProviderVerificationView(APIView):
     """
     API endpoint for admin to verify service providers
     """
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsSuperAdmin]
     
     def post(self, request, provider_id):
         provider = get_object_or_404(ServiceProviderProfile, id=provider_id)
@@ -1176,6 +1185,8 @@ class ProviderVerificationView(APIView):
             provider.verified_at = timezone.now()
             provider.verification_notes = notes
             provider.save()
+            provider.user.is_verified = True
+            provider.user.save(update_fields=['is_verified'])
             
             # Send approval notification
             # You can implement email notification here
@@ -1262,50 +1273,48 @@ def user_stats(request):
 @permission_classes([AllowAny])
 def resend_otp(request):
     """
-    API endpoint to resend OTP
+    API endpoint to resend OTP (for email or phone)
     """
     email = request.data.get('email')
-    purpose = request.data.get('purpose', 'email_verification')
-    
-    if not email:
-        return Response({
-            'error': 'Email is required'
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
+    phone = request.data.get('phone')
+    purpose = request.data.get('purpose', 'login')
+
+    if not email and not phone:
+        return Response(
+            {'error': 'Either email or phone is required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
     try:
-        user = User.objects.get(email=email)
+        user = User.objects.get(email=email) if email else User.objects.get(phone=phone)
     except User.DoesNotExist:
-        return Response({
-            'error': 'User with this email does not exist'
-        }, status=status.HTTP_404_NOT_FOUND)
-    
-    # Generate and send new OTP
+        return Response(
+            {'error': 'User not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    # Generate OTP
     otp = generate_otp()
     expires_at = timezone.now() + timedelta(minutes=5 if purpose == 'login' else 10)
-    
+
+    # Save OTP in DB
     OTPVerification.objects.create(
         user=user,
         otp=otp,
         purpose=purpose,
         expires_at=expires_at
     )
-    
-    send_otp(email, otp, purpose)
-    
-    # Log activity
-    # Log activity
-    UserActivity.objects.create(
-        user=user,
-        activity_type='otp_resend',
-        description=f'OTP resent for {purpose}',
-        ip_address=get_client_ip(request),
-        metadata={'purpose': purpose}
-    )
-    
-    return Response({
-        'message': 'OTP sent successfully'
-    }, status=status.HTTP_200_OK)
 
+    # Send OTP
+    if email:
+        send_email_otp(email, otp, purpose)
+    else:
+        send_sms_otp(phone, otp)
+
+    return Response(
+        {'message': 'OTP resent successfully'},
+        status=status.HTTP_200_OK
+    )
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -1354,7 +1363,6 @@ def dashboard_stats(request):
         stats = {
             'total_users': User.objects.count(),
             'total_providers': ServiceProviderProfile.objects.count(),
-            'total_pilgrims': PilgrimProfile.objects.count(),
             'verified_providers': ServiceProviderProfile.objects.filter(verification_status='verified').count(),
             'pending_verifications': ServiceProviderProfile.objects.filter(verification_status='pending').count(),
             'active_users': User.objects.filter(is_active=True).count(),
@@ -1493,13 +1501,14 @@ def update_notification_settings(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAdminUser])
+@permission_classes([IsSuperAdmin])
 def admin_dashboard_stats(request):
     """
     API endpoint for admin dashboard statistics
     """
-    from django.db.models import Count, Q
-    from datetime import datetime, timedelta
+    from django.db.models import Count
+    from django.utils import timezone
+    from datetime import timedelta
     
     # Date ranges
     today = timezone.now().date()
@@ -1524,8 +1533,8 @@ def admin_dashboard_stats(request):
             'featured': ServiceProviderProfile.objects.filter(is_featured=True).count(),
         },
         'pilgrims': {
-            'total': User.objects.count(),
-            'active': User.objects.filter(user__is_active=True).count(),
+            'total': User.objects.filter(user_type='pilgrim').count() if hasattr(User, 'user_type') else User.objects.count(),
+            'active': User.objects.filter(user_type='pilgrim', is_active=True).count() if hasattr(User, 'user_type') else User.objects.filter(is_active=True).count(),
         },
         'activities': {
             'total': UserActivity.objects.count(),
@@ -1550,7 +1559,6 @@ def admin_dashboard_stats(request):
     }
     
     return Response(stats, status=status.HTTP_200_OK)
-
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])

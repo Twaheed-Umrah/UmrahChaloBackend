@@ -1,0 +1,11 @@
+🔔 Subscription Reminder
+
+Your {{ plan_name }} subscription expires on {{ end_date }}.
+
+Dont miss out on:
+• Lead notifications
+• Package visibility
+• Customer support
+• Analytics dashboard
+
+Renew today to maintain your premium benefits!

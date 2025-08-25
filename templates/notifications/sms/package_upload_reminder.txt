@@ -1,0 +1,1 @@
+📦 Upload your first package to start receiving leads! It's been {{ days_since_registration }} days since you joined.

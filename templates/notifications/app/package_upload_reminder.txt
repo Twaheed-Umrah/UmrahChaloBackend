@@ -1,0 +1,11 @@
+📦 Time to Upload Your First Package!
+
+You joined {{ days_since_registration }} days ago but haven't uploaded any packages yet.
+
+Start getting leads by:
+1. Creating compelling packages
+2. Adding attractive photos  
+3. Setting competitive prices
+4. Writing detailed descriptions
+
+Upload your first package now and start your business journey!

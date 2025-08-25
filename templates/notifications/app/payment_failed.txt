@@ -1,0 +1,10 @@
+❌ Payment Failed
+
+Amount: ₹{{ amount }}
+Payment Method: {{ payment_method }}
+
+Your payment could not be processed. Please:
+• Check your payment details
+• Ensure sufficient balance
+• Try a different payment method
+• Contact support if issue persists

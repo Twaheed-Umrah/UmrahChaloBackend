@@ -6,7 +6,56 @@ from .models import (
     Package, PackageService, PackageInclusion, PackageExclusion,
     PackageItinerary, PackageImage, PackagePolicy, PackageAvailability
 )
+import base64
+import uuid
+from django.core.files.base import ContentFile
 from apps.authentication.models import ServiceProviderProfile
+class Base64ImageField(serializers.ImageField):
+    """
+    A Django REST framework field for handling image-uploads through raw post data.
+    It uses base64 for encoding and decoding the contents of the file.
+    """
+    
+    def to_internal_value(self, data):
+        # Check if this is a base64 string
+        if isinstance(data, str) and data.startswith('data:image'):
+            try:
+                # Parse the base64 string
+                header, imgstr = data.split(';base64,')
+                ext = header.split('/')[1]  # Get extension from data:image/jpeg
+                
+                # Handle different image formats
+                if ext == 'jpeg':
+                    ext = 'jpg'
+                
+                # Generate a unique filename
+                filename = f"{uuid.uuid4()}.{ext}"
+                
+                # Decode the base64 string
+                decoded_data = base64.b64decode(imgstr)
+                data = ContentFile(decoded_data, name=filename)
+                
+            except (ValueError, IndexError) as e:
+                raise serializers.ValidationError(f"Invalid base64 image data: {str(e)}")
+        
+        return super().to_internal_value(data)
+    
+    def to_representation(self, value):
+        """Return full URL for the image"""
+        if not value:
+            return None
+        
+        # Check if the file actually exists
+        try:
+            if not value.storage.exists(value.name):
+                return None
+        except Exception:
+            return None
+        
+        request = self.context.get('request')
+        if request is not None:
+            return request.build_absolute_uri(value.url)
+        return value.url
 
 class PackageImageSerializer(serializers.ModelSerializer):
     """Serializer for package images"""
@@ -88,19 +137,25 @@ class PackageListSerializer(serializers.ModelSerializer):
     final_price = serializers.ReadOnlyField()
     is_available = serializers.ReadOnlyField()
     availability_percentage = serializers.ReadOnlyField()
-    featured_image = serializers.ImageField(read_only=True)
-    
+    featured_image = serializers.SerializerMethodField()
+
+    def get_featured_image(self, obj):
+        request = self.context.get('request')
+        if obj.featured_image and obj.featured_image.image:
+            return request.build_absolute_uri(obj.featured_image.image.url) if request else obj.featured_image.image.url
+        return None
     class Meta:
         model = Package
         fields = [
-            'id', 'name', 'slug', 'package_type', 'provider',
-            'base_price', 'discounted_price', 'final_price',
-            'duration_days', 'start_date', 'end_date',
-            'booking_deadline', 'max_capacity', 'current_bookings','city', 'state',
-            'country',
-            'availability_percentage', 'is_available', 'status',
-            'featured_image', 'rating', 'reviews_count',
-            'views_count', 'leads_count', 'is_featured',
+            'id', 'name', 'slug', 'description', 'package_type',
+            'provider', 'base_price', 'discounted_price', 'final_price',
+            'duration_days', 'start_date', 'end_date', 'booking_deadline',
+            'max_capacity', 'current_bookings', 'availability_percentage',
+            'city', 'state', 'country',
+            'is_available', 'status', 'featured_image', 'rating',
+            'reviews_count', 'views_count', 'leads_count', 'is_featured',
+            'is_active', 'package_services', 'inclusions', 'exclusions',
+            'itineraries', 'images', 'policies', 'availabilities',
             'created_at', 'updated_at'
         ]
         read_only_fields = [
@@ -117,13 +172,18 @@ class PackageDetailSerializer(serializers.ModelSerializer):
     inclusions = PackageInclusionSerializer(many=True, read_only=True)
     exclusions = PackageExclusionSerializer(many=True, read_only=True)
     itineraries = PackageItinerarySerializer(many=True, read_only=True)
-    images = PackageImageSerializer(many=True, read_only=True)
     policies = PackagePolicySerializer(many=True, read_only=True)
     availabilities = PackageAvailabilitySerializer(many=True, read_only=True)
     final_price = serializers.ReadOnlyField()
     is_available = serializers.ReadOnlyField()
     availability_percentage = serializers.ReadOnlyField()
-    
+    featured_image = serializers.SerializerMethodField()
+
+    def get_featured_image(self, obj):
+        request = self.context.get('request')
+        if obj.featured_image and obj.featured_image.image:
+            return request.build_absolute_uri(obj.featured_image.image.url) if request else obj.featured_image.image.url
+        return None
     
     class Meta:
         model = Package

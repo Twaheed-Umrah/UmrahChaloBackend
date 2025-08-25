@@ -1,0 +1,7 @@
+💰 Payment Successful!
+
+Amount: ₹{{ amount }}
+Payment Method: {{ payment_method }}
+Transaction ID: {{ transaction_id }}
+
+Your payment has been processed successfully. Thank you for your business!

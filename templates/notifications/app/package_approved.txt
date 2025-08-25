@@ -1,0 +1,10 @@
+✅ Package Approved!
+
+Great news! Your package "{{ package_name }}" has been approved by our team.
+
+Your package is now:
+• Visible to pilgrims
+• Ready to receive leads
+• Available for bookings
+
+Start promoting your package to get more visibility!

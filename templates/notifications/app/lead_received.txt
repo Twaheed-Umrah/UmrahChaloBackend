@@ -1,0 +1,22 @@
+🔔 New Lead Received!
+
+{{ pilgrim_name }} has inquired about your {{ package_name }}.
+
+Contact Details:
+📞 {{ pilgrim_phone }}
+📧 {{ pilgrim_email }}
+
+Message: "{{ message }}"
+
+Tap to view full details and respond quickly!
+
+<!-- templates/notifications/app/subscription_expiry.txt -->
+⚠️ Subscription Expiring Soon
+
+Your {{ plan_name }} subscription expires in {{ days_left }} days ({{ end_date }}).
+
+Renew now to continue enjoying:
+• Unlimited package listings
+• Priority notifications  
+• Advanced analytics
+• Premium support

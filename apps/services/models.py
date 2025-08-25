@@ -63,10 +63,10 @@ class Service(BaseModel):
     Individual services offered by providers
     """
     provider = models.ForeignKey(
-    ServiceProviderProfile,
-    on_delete=models.CASCADE,
-    related_name='services'
-)
+        ServiceProviderProfile,
+        on_delete=models.CASCADE,
+        related_name='services'
+    )
     service_type = models.CharField(max_length=20, choices=ServiceType.choices)
     category = models.ForeignKey(ServiceCategory, on_delete=models.CASCADE, related_name='services')
     
@@ -107,12 +107,12 @@ class Service(BaseModel):
     # Status and verification
     status = models.CharField(max_length=20, choices=ServiceStatus.choices, default=ServiceStatus.PENDING)
     verified_by = models.ForeignKey(
-     settings.AUTH_USER_MODEL,
-     on_delete=models.SET_NULL,
-     null=True,
-     blank=True,
-     related_name='verified_services',
-     limit_choices_to={'user_type__in': [UserRole.ADMIN, UserRole.SUPER_ADMIN]}  # ✅
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='verified_services',
+        limit_choices_to={'user_type__in': [UserRole.ADMIN, UserRole.SUPER_ADMIN]}
     )
     verified_at = models.DateTimeField(null=True, blank=True)
     rejection_reason = models.TextField(blank=True)
@@ -137,13 +137,119 @@ class Service(BaseModel):
     meta_title = models.CharField(max_length=200, blank=True)
     meta_description = models.CharField(max_length=300, blank=True)
     
-    # Special fields for Air Ticket Group Fare
+    # ============= CONDITIONAL FIELDS BASED ON SERVICE TYPE =============
+    
+    # Air Ticket specific fields
     departure_date = models.DateField(null=True, blank=True)
     return_date = models.DateField(null=True, blank=True)
     departure_city = models.CharField(max_length=100, blank=True)
     arrival_city = models.CharField(max_length=100, blank=True)
     airline = models.CharField(max_length=100, blank=True)
     seat_availability = models.IntegerField(null=True, blank=True)
+    
+    # Flight specific fields (for Air Ticket service type)
+    flight_from = models.CharField(
+        max_length=100, 
+        blank=True, 
+        null=True,
+        verbose_name="Flight From",
+        help_text="Origin airport/city for flight"
+    )
+    flight_to = models.CharField(
+        max_length=100, 
+        blank=True, 
+        null=True,
+        verbose_name="Flight To",
+        help_text="Destination airport/city for flight"
+    )
+    flight_class = models.CharField(
+        max_length=20,
+        choices=[
+            ('economy', 'Economy'),
+            ('business', 'Business'),
+            ('first', 'First Class'),
+            ('premium_economy', 'Premium Economy'),
+        ],
+        blank=True,
+        verbose_name="Flight Class"
+    )
+    
+    # Zamzam Water specific fields
+    water_capacity = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name="Water Capacity",
+        help_text="Capacity of Zamzam water (e.g., 500ml, 1L, 5L)"
+    )
+    water_capacity_liters = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Capacity in Liters",
+        help_text="Numerical capacity in liters for filtering"
+    )
+    water_source = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name="Water Source",
+        help_text="Source/origin of Zamzam water"
+    )
+    packaging_type = models.CharField(
+        max_length=50,
+        choices=[
+            ('bottle', 'Bottle'),
+            ('container', 'Container'),
+            ('can', 'Can'),
+            ('pouch', 'Pouch'),
+        ],
+        blank=True,
+        verbose_name="Packaging Type"
+    )
+    
+    # Hotel specific fields
+    hotel_star_rating = models.IntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(5)],
+        verbose_name="Star Rating"
+    )
+    hotel_room_type = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name="Room Type",
+        help_text="Type of room (Single, Double, Suite, etc.)"
+    )
+        
+    # Transport specific fields
+    transport_type = models.CharField(
+        max_length=50,
+        choices=[
+            ('bus', 'Bus'),
+            ('car', 'Car'),
+            ('taxi', 'Taxi'),
+            ('van', 'Van'),
+            ('coach', 'Coach'),
+        ],
+        blank=True,
+        verbose_name="Transport Type"
+    )
+    vehicle_capacity = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name="Vehicle Capacity",
+        help_text="Number of passengers"
+    )
+    pickup_location = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name="Pickup Location"
+    )
+    drop_location = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name="Drop Location"
+    )
     
     # Flags
     is_featured = models.BooleanField(default=False)
@@ -158,17 +264,55 @@ class Service(BaseModel):
             models.Index(fields=['city', 'service_type']),
             models.Index(fields=['departure_date']),
             models.Index(fields=['price']),
+            models.Index(fields=['flight_from', 'flight_to']),
+            models.Index(fields=['water_capacity_liters']),
         ]
     
     def __str__(self):
-         provider_name = None
-         try:
-             if self.provider and self.provider.user:
-                 provider_name = self.provider.user.get_full_name() or self.provider.user.username
-         except Exception:
-             provider_name = "Unknown Provider"
-         return f"{self.title} - ({provider_name})"
-
+        provider_name = None
+        try:
+            if self.provider and self.provider.user:
+                provider_name = self.provider.user.get_full_name() or self.provider.user.username
+        except Exception:
+            provider_name = "Unknown Provider"
+        return f"{self.title} - ({provider_name})"
+    
+    def clean(self):
+        """
+        Custom validation to ensure required fields are filled based on service type
+        """
+        from django.core.exceptions import ValidationError
+        
+        errors = {}
+        
+        # Air Ticket validation
+        if self.service_type == ServiceType.AIR_TICKET:
+            if not self.flight_from:
+                errors['flight_from'] = 'Flight From is required for Air Ticket services'
+            if not self.flight_to:
+                errors['flight_to'] = 'Flight To is required for Air Ticket services'
+            if not self.departure_date:
+                errors['departure_date'] = 'Departure date is required for Air Ticket services'
+        
+        # Zamzam Water validation
+        if self.service_type == ServiceType.JAM_JAM_WATER:
+            if not self.water_capacity:
+                errors['water_capacity'] = 'Water capacity is required for Zamzam Water services'
+        
+        # Hotel validation
+        if self.service_type == ServiceType.HOTEL:
+            if not self.hotel_room_type:
+                errors['hotel_room_type'] = 'Room type is required for Hotel services'
+        
+        # Transport validation
+        if self.service_type == ServiceType.TRANSPORT:
+            if not self.transport_type:
+                errors['transport_type'] = 'Transport type is required for Transport services'
+            if not self.pickup_location:
+                errors['pickup_location'] = 'Pickup location is required for Transport services'
+        
+        if errors:
+            raise ValidationError(errors)
     
     def save(self, *args, **kwargs):
         if not self.slug:
@@ -180,6 +324,21 @@ class Service(BaseModel):
                 slug = f"{base_slug}-{counter}"
                 counter += 1
             self.slug = slug
+        
+        # Auto-populate numerical capacity for water
+        if self.service_type == ServiceType.JAM_JAM_WATER and self.water_capacity:
+            try:
+                import re
+                # Extract number from capacity string (e.g., "500ml" -> 0.5, "1L" -> 1)
+                capacity_match = re.search(r'(\d+(?:\.\d+)?)', self.water_capacity.lower())
+                if capacity_match:
+                    capacity_num = float(capacity_match.group(1))
+                    if 'ml' in self.water_capacity.lower():
+                        self.water_capacity_liters = capacity_num / 1000
+                    elif 'l' in self.water_capacity.lower():
+                        self.water_capacity_liters = capacity_num
+            except:
+                pass  # If parsing fails, leave water_capacity_liters as is
         
         super().save(*args, **kwargs)
     
@@ -231,7 +390,49 @@ class Service(BaseModel):
             start_date__lte=timezone.now(),
             end_date__gte=timezone.now()
         ).exists()
+    
+    def get_service_specific_fields(self):
+        """
+        Return a dictionary of service-specific fields based on service type
+        """
+        specific_fields = {}
+        
+        if self.service_type == ServiceType.AIR_TICKET:
+            specific_fields.update({
+                'flight_from': self.flight_from,
+                'flight_to': self.flight_to,
+                'flight_class': self.flight_class,
+                'departure_date': self.departure_date,
+                'return_date': self.return_date,
+                'airline': self.airline,
+                'seat_availability': self.seat_availability,
+            })
+        
+        elif self.service_type == ServiceType.JAM_JAM_WATER:
+            specific_fields.update({
+                'water_capacity': self.water_capacity,
+                'water_capacity_liters': self.water_capacity_liters,
+                'water_source': self.water_source,
+                'packaging_type': self.packaging_type,
+            })
+        
+        elif self.service_type == ServiceType.HOTEL:
+            specific_fields.update({
+                'hotel_star_rating': self.hotel_star_rating,
+                'hotel_room_type': self.hotel_room_type,
+            })
+        
+        elif self.service_type == ServiceType.TRANSPORT:
+            specific_fields.update({
+                'transport_type': self.transport_type,
+                'vehicle_capacity': self.vehicle_capacity,
+                'pickup_location': self.pickup_location,
+                'drop_location': self.drop_location,
+            })
+        
+        return {k: v for k, v in specific_fields.items() if v is not None}
 
+# Rest of the models remain the same
 class ServiceAvailability(BaseModel):
     """
     Manage service availability for specific dates

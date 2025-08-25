@@ -1,0 +1,9 @@
+⚠️ Subscription Expiring Soon
+
+Your {{ plan_name }} subscription expires in {{ days_left }} days ({{ end_date }}).
+
+Renew now to continue enjoying:
+• Unlimited package listings
+• Priority notifications  
+• Advanced analytics
+• Premium support

@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verification Complete - Umrah Chalo</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 20px;
+        }
+        
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #1B7B4C 0%, #2E8B57 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        .brand-name {
+            font-size: 18px;
+            margin-top: 10px;
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .content h2 {
+            color: #2c3e50;
+            margin-top: 0;
+            margin-bottom: 20px;
+            font-size: 22px;
+        }
+        
+        .success-box {
+            background: #d4edda;
+            border-left: 4px solid #28A745;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        .verification-badge {
+            background: #e8f5e8;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            text-align: center;
+            border: 2px solid #28A745;
+        }
+        
+        .badge-icon {
+            font-size: 48px;
+            color: #28A745;
+            margin-bottom: 10px;
+        }
+        
+        .next-steps {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        .benefits-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .benefit-card {
+            background: #ffffff;
+            padding: 15px;
+            border-radius: 8px;
+            border: 2px solid #e9ecef;
+            text-align: center;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #1B7B4C 0%, #2E8B57 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            margin: 15px 0;
+            transition: all 0.3s ease;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(27, 123, 76, 0.3);
+        }
+        
+        .footer {
+            background: #1B7B4C;
+            color: white;
+            padding: 20px 30px;
+            text-align: center;
+            font-size: 14px;
+        }
+        
+        .umrah-icon {
+            font-size: 20px;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="header">
+            <h1><span class="umrah-icon">✅</span> Verification Complete!</h1>
+            <div class="brand-name">Umrah Chalo</div>
+        </div>
+        <div class="content">
+            <h2>Welcome to the verified providers</h2>
+            <p>Assalam-o-Alaikum {{provider_name}},</p>
+            
+            <div class="success-box">
+                <strong>Congratulations!</strong> Your account has been successfully verified. You're now a trusted Umrah provider on our platform.
+            </div>
+            
+            <div class="verification-badge">
+                <div class="badge-icon">🛡️</div>
+                <h3 style="color: #28A745; margin: 0;">VERIFIED PROVIDER</h3>
+                <p>Verified on {{verification_date}}</p>
+            </div>
+            
+            <div class="benefits-grid">
+                <div class="benefit-card">
+                    <div style="font-size: 24px; color: #1B7B4C;">🔍</div>
+                    <strong>Higher Visibility</strong>
+                    <p>Verified badge increases customer trust</p>
+                </div>
+                <div class="benefit-card">
+                    <div style="font-size: 24px; color: #1B7B4C;">💼</div>
+                    <strong>More Bookings</strong>
+                    <p>Customers prefer verified providers</p>
+                </div>
+                <div class="benefit-card">
+                    <div style="font-size: 24px; color: #1B7B4C;">⭐</div>
+                    <strong>Premium Support</strong>
+                    <p>Priority customer service</p>
+                </div>
+                <div class="benefit-card">
+                    <div style="font-size: 24px; color: #1B7B4C;">🚀</div>
+                    <strong>Advanced Features</strong>
+                    <p>Access to premium tools</p>
+                </div>
+            </div>
+            
+            <div class="next-steps">
+                <h3>🚀 What's Next?</h3>
+                <ul>
+                    <li><strong>Upload Packages:</strong> Add your best Umrah packages</li>
+                    <li><strong>Complete Profile:</strong> Add photos and detailed business information</li>
+                    <li><strong>Set Competitive Prices:</strong> Research market rates</li>
+                    <li><strong>Prepare for Inquiries:</strong> Be ready to respond quickly</li>
+                </ul>
+            </div>
+            
+            <div style="text-align: center;">
+                <a href="{{dashboard_url}}" class="btn">Go to Dashboard</a>
+                <a href="{{upload_package_url}}" class="btn" style="margin-left: 10px;">Upload Package</a>
+            </div>
+            
+            <p><strong>📊 Your Account Status:</strong></p>
+            <ul>
+                <li>✅ Identity Verified</li>
+                <li>✅ Business License Approved</li>
+                <li>✅ Bank Details Confirmed</li>
+                <li>✅ Contact Information Verified</li>
+            </ul>
+            
+            <p><strong>🎯 Pro Tips for Success:</strong></p>
+            <ul>
+                <li>Respond to inquiries within 2-4 hours</li>
+                <li>Upload high-quality photos of accommodations</li>
+                <li>Provide detailed package descriptions</li>
+                <li>Maintain competitive pricing</li>
+                <li>Collect and showcase customer reviews</li>
+            </ul>
+            
+            <p style="font-style: italic; color: #666; margin-top: 25px;">
+                You're now part of an elite group of verified Umrah providers. May Allah bless your efforts in serving pilgrims.
+            </p>
+        </div>
+        <div class="footer">
+            Verified and ready to serve • <strong>Umrah Chalo</strong> - Your trusted Umrah partner
+        </div>
+    </div>
+</body>
+</html>

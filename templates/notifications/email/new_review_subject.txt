@@ -1,0 +1,36 @@
+UMRAH CHALO - NEW CUSTOMER REVIEW!
+
+Assalam-o-Alaikum {{provider_name}},
+
+A customer has shared their experience
+
+You have received a new review for your Umrah package! Building trust through authentic customer feedback.
+
+REVIEW DETAILS:
+- Customer: {{customer_name}}
+- Package: {{package_name}}
+- Travel Date: {{travel_date}}
+- Review Date: {{review_date}}
+- Rating: {{star_rating}} stars
+
+CUSTOMER REVIEW:
+"{{review_text}}"
+
+Why reviews matter:
+- Build trust with potential customers
+- Improve your service ranking
+- Get valuable feedback for improvement
+- Increase booking conversions by 40%
+
+View review: {{review_url}}
+Respond to review: {{respond_url}}
+
+TIP: Consider thanking the customer and addressing any concerns professionally.
+
+Customer feedback helps us all serve pilgrims better on their sacred journey.
+
+---
+Build trust through excellent service
+UMRAH CHALO - Your trusted Umrah partner
+
+Contact: support@umrahchalo.com

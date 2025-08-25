@@ -16,7 +16,7 @@ class User(AbstractUser):
     
     full_name = models.CharField(max_length=255, blank=True, null=True)
     email = models.EmailField(unique=True)
-    phone = models.CharField(max_length=15, blank=True, null=True)
+    phone = models.CharField(unique=True,max_length=15, blank=True, null=True)
     user_type = models.CharField(max_length=20, choices=USER_TYPES, default='pilgrim')
     is_verified = models.BooleanField(default=False)
     
@@ -282,7 +282,13 @@ class ServiceProviderProfile(models.Model):
             self.total_reviews = reviews.count()
         
         self.save()
-
+    def has_active_subscription(self):
+           """Check if this service provider's user has an active subscription."""
+           return self.user.subscriptions.filter(
+               status='active',
+               start_date__lte=timezone.now(),
+               end_date__gte=timezone.now()
+                 ).exists()
 
 # REMOVED: PilgrimProfile - Basic User model is sufficient for pilgrims
 # Pilgrims only need: email, phone, user_type = 'pilgrim'

@@ -1,0 +1,54 @@
+UMRAH CHALO - WELCOME!
+
+Assalam-o-Alaikum {{user_name}},
+
+Welcome to the Umrah Chalo family!
+
+Thank you for joining us. Wen are honored to be part of your journey in serving pilgrims on their sacred path to the Holy Kaaba.
+
+You have taken the first step towards building a successful Umrah business. Our platform connects you with thousands of Muslims seeking authentic and reliable Umrah experiences.
+
+YOUR NEXT STEPS:
+
+1. Complete Your Profile
+   Add your business information, photos, and credentials to build trust with customers.
+
+2. Get Verified
+   Submit your documents for verification to earn the trusted provider badge.
+
+3. Upload Packages
+   Create compelling Umrah packages with detailed descriptions and competitive pricing.
+
+4. Start Receiving Bookings
+   Get inquiries from customers and convert them into confirmed bookings.
+
+PLATFORM FEATURES:
+- Analytics Dashboard: Track your performance and bookings
+- Direct Messaging: Communicate with customers instantly
+- Review System: Build reputation through customer feedback
+- Mobile Friendly: Manage your business on the go
+
+Complete your profile: {{dashboard_url}}
+Get help: {{help_url}}
+
+NEED HELP GETTING STARTED?
+Our support team is here to help you succeed:
+- Email: support@umrahchalo.com
+- Phone: {{support_phone}}
+- WhatsApp: {{whatsapp_number}}
+- Help Center: {{help_center_url}}
+
+HELPFUL RESOURCES:
+- Provider Success Guide: {{provider_guide_url}}
+- Best Practices for Umrah Providers: {{best_practices_url}}
+- Pricing Strategy Guide: {{pricing_guide_url}}
+- Customer Service Tips: {{customer_service_url}}
+
+May Allah bless your efforts in facilitating the sacred journey of His servants to the Holy House.
+
+---
+Your success is our mission
+UMRAH CHALO - Your trusted Umrah partner
+
+© 2025 Umrah Chalo. All rights reserved.
+Contact: support@umrahchalo.com

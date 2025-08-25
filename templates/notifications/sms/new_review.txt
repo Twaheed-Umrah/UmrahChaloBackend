@@ -1,0 +1,2 @@
+⭐ New {{ rating }}-star review from {{ reviewer_name }}! Check your dashboard to see the full review.
+

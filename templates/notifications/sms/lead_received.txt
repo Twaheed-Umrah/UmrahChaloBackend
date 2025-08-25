@@ -1,0 +1,1 @@
+🎉 New Lead! {{ pilgrim_name }} ({{ pilgrim_phone }}) inquired about {{ package_name }}. Check your dashboard now!

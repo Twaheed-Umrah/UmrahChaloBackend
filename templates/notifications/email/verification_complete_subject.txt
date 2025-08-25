@@ -1,0 +1,46 @@
+UMRAH CHALO - VERIFICATION COMPLETE!
+
+Assalam-o-Alaikum {{provider_name}},
+
+Welcome to the verified providers
+
+Congratulations! Your account has been successfully verified. You're now a trusted Umrah provider on our platform.
+
+*** VERIFIED PROVIDER ***
+Verified on: {{verification_date}}
+
+VERIFICATION BENEFITS:
+- Higher Visibility: Verified badge increases customer trust
+- More Bookings: Customers prefer verified providers
+- Premium Support: Priority customer service
+- Advanced Features: Access to premium tools
+
+What's Next?
+- Upload Packages: Add your best Umrah packages
+- Complete Profile: Add photos and detailed business information
+- Set Competitive Prices: Research market rates
+- Prepare for Inquiries: Be ready to respond quickly
+
+Go to dashboard: {{dashboard_url}}
+Upload package: {{upload_package_url}}
+
+YOUR ACCOUNT STATUS:
+✓ Identity Verified
+✓ Business License Approved
+✓ Bank Details Confirmed
+✓ Contact Information Verified
+
+Pro Tips for Success:
+- Respond to inquiries within 2-4 hours
+- Upload high-quality photos of accommodations
+- Provide detailed package descriptions
+- Maintain competitive pricing
+- Collect and showcase customer reviews
+
+You are now part of an elite group of verified Umrah providers. May Allah bless your efforts in serving pilgrims.
+
+---
+Verified and ready to serve
+UMRAH CHALO - Your trusted Umrah partner
+
+Support: support@umrahchalo.com

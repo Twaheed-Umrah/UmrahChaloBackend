@@ -1,0 +1,9 @@
+⭐ New Review Received!
+
+{{ reviewer_name }} left you a {{ rating }}-star review{% if package_name %} for "{{ package_name }}"{% endif %}.
+
+{% if comment %}
+"{{ comment }}"
+{% endif %}
+
+Reviews help build trust with potential customers. Keep up the great work!

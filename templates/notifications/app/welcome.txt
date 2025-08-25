@@ -1,0 +1,1 @@
+Welcome {{ user_name }}! 🎉 You've successfully joined as a {{ user_type }}. Explore our platform and start your journey today!

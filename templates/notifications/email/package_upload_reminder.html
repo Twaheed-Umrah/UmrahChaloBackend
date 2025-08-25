@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Your Packages - Umrah Chalo</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 20px;
+        }
+        
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #6F42C1 0%, #5A2D82 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        .brand-name {
+            font-size: 18px;
+            margin-top: 10px;
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .content h2 {
+            color: #2c3e50;
+            margin-top: 0;
+            margin-bottom: 20px;
+            font-size: 22px;
+        }
+        
+        .reminder-box {
+            background: #e7e3ff;
+            border-left: 4px solid #6F42C1;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .stat-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            border: 2px solid #e9ecef;
+        }
+        
+        .stat-number {
+            font-size: 32px;
+            font-weight: bold;
+            color: #6F42C1;
+            margin-bottom: 5px;
+        }
+        
+        .benefits-list {
+            background: #e8f5e8;
+            border-left: 4px solid #28A745;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #1B7B4C 0%, #2E8B57 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            margin: 15px 0;
+            transition: all 0.3s ease;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(27, 123, 76, 0.3);
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #6F42C1 0%, #5A2D82 100%);
+        }
+        
+        .footer {
+            background: #1B7B4C;
+            color: white;
+            padding: 20px 30px;
+            text-align: center;
+            font-size: 14px;
+        }
+        
+        .umrah-icon {
+            font-size: 20px;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="header">
+            <h1><span class="umrah-icon">📦</span> Time to Upload Your Packages!</h1>
+            <div class="brand-name">Umrah Chalo</div>
+        </div>
+        <div class="content">
+            <h2>Start receiving bookings today</h2>
+            <p>Assalam-o-Alaikum {{provider_name}},</p>
+            
+            <div class="reminder-box">
+                <strong>Ready to Start?</strong> Your account is active, but you haven't uploaded any Umrah packages yet. Start attracting customers by showcasing your best offerings!
+            </div>
+            
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-number">{{days_since_signup}}</div>
+                    <div>Days Since Signup</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">0</div>
+                    <div>Packages Uploaded</div>
+                </div>
+            </div>
+            
+            <div class="benefits-list">
+                <h3>🌟 Benefits of Uploading Packages:</h3>
+                <ul>
+                    <li><strong>Instant Visibility:</strong> Appear in customer searches immediately</li>
+                    <li><strong>Direct Inquiries:</strong> Receive booking requests from interested pilgrims</li>
+                    <li><strong>Build Reputation:</strong> Get reviews and ratings from satisfied customers</li>
+                    <li><strong>Increase Revenue:</strong> Turn your expertise into profit</li>
+                    <li><strong>Help Pilgrims:</strong> Facilitate their sacred journey to Makkah</li>
+                </ul>
+            </div>
+            
+            <p><strong>📋 What to Include in Your Package:</strong></p>
+            <ul>
+                <li>Clear package name and description</li>
+                <li>Duration and travel dates</li>
+                <li>Accommodation details (hotel ratings, proximity to Haram)</li>
+                <li>Flight information</li>
+                <li>Included services (visa, transportation, meals)</li>
+                <li>Competitive pricing</li>
+                <li>High-quality photos</li>
+            </ul>
+            
+            <div style="text-align: center;">
+                <a href="{{upload_package_url}}" class="btn btn-primary">Upload Your First Package</a>
+                <a href="{{guidelines_url}}" class="btn" style="margin-left: 10px;">Package Guidelines</a>
+            </div>
+            
+            <p><strong>💡 Pro Tips for Success:</strong></p>
+            <ul>
+                <li>Upload at least 3-5 packages to attract different customer segments</li>
+                <li>Use authentic photos of accommodations and services</li>
+                <li>Price competitively based on market research</li>
+                <li>Respond quickly to inquiries (within 2-4 hours)</li>
+                <li>Maintain accurate and updated package information</li>
+            </ul>
+            
+            <p><em>⏰ The sooner you upload, the sooner you start earning!</em></p>
+            
+            <p style="font-style: italic; color: #666; margin-top: 25px;">
+                Join thousands of successful Umrah providers who are already serving pilgrims through our platform.
+            </p>
+        </div>
+        <div class="footer">
+            Your journey to success starts here • <strong>Umrah Chalo</strong> - Your trusted Umrah partner
+        </div>
+    </div>
+</body>
+</html>

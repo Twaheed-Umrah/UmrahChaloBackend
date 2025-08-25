@@ -187,78 +187,59 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
 
 class UserLoginSerializer(serializers.Serializer):
-    """
-    Serializer for user login - works for all user types
-    """
-    email = serializers.EmailField()
-    password = serializers.CharField()
-    
+    email = serializers.EmailField(required=False)
+    phone = serializers.CharField(required=False)
+    password = serializers.CharField(write_only=True)
+    user = serializers.HiddenField(default=None)
+    login_method = serializers.CharField(read_only=True)
+
     def validate(self, attrs):
         email = attrs.get('email')
+        phone = attrs.get('phone')
         password = attrs.get('password')
-        
-        if email and password:
-            user = authenticate(username=email, password=password)
-            if not user:
-                raise serializers.ValidationError("Invalid credentials.")
-            if not user.is_active:
-                raise serializers.ValidationError("User account is disabled.")
-            attrs['user'] = user
-        else:
-            raise serializers.ValidationError("Must include email and password.")
-        
+
+        if not password or (not email and not phone):
+            raise serializers.ValidationError("Must include either email or phone number and password.")
+
+        try:
+            user = User.objects.get(email=email) if email else User.objects.get(phone=phone)
+        except User.DoesNotExist:
+            raise serializers.ValidationError("Invalid credentials.")
+
+        if not user.check_password(password):
+            raise serializers.ValidationError("Invalid credentials.")
+
+        attrs['user'] = user
+        attrs['login_method'] = 'email' if email else 'phone'
         return attrs
 
 
 class OTPLoginSerializer(serializers.Serializer):
-    """
-    Serializer for OTP-based login
-    """
-    email = serializers.EmailField()
-    
-    def validate_email(self, value):
-        try:
-            user = User.objects.get(email=value)
-        except User.DoesNotExist:
-            raise serializers.ValidationError("User with this email does not exist.")
-        return value
+    email = serializers.EmailField(required=False, allow_blank=True)
+    phone = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, data):
+        email = data.get("email")
+        phone = data.get("phone")
+
+        if not email and not phone:
+            raise serializers.ValidationError("Either email or phone must be provided.")
+        if email and phone:
+            raise serializers.ValidationError("Provide only one of email or phone, not both.")
+
+        return data
 
 
 class OTPVerificationSerializer(serializers.Serializer):
-    """
-    Serializer for OTP verification
-    """
-    email = serializers.EmailField()
+    email = serializers.EmailField(required=False)
+    phone = serializers.CharField(required=False)
     otp = serializers.CharField(max_length=6)
     purpose = serializers.CharField()
-    
-    def validate(self, attrs):
-        email = attrs.get('email')
-        otp = attrs.get('otp')
-        purpose = attrs.get('purpose')
-        
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            raise serializers.ValidationError("User with this email does not exist.")
-        
-        try:
-            otp_verification = OTPVerification.objects.get(
-                user=user,
-                otp=otp,
-                purpose=purpose,
-                is_used=False
-            )
-        except OTPVerification.DoesNotExist:
-            raise serializers.ValidationError("Invalid OTP.")
-        
-        if otp_verification.is_expired():
-            raise serializers.ValidationError("OTP has expired.")
-        
-        attrs['user'] = user
-        attrs['otp_verification'] = otp_verification
-        return attrs
 
+    def validate(self, data):
+        if not data.get("email") and not data.get("phone"):
+            raise serializers.ValidationError("Email or Phone is required.")
+        return data
 
 class PasswordResetSerializer(serializers.Serializer):
     """

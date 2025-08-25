@@ -2,7 +2,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from rest_framework_nested import routers
 
-from .views import PackageViewSet, PackageImageViewSet, PackageAdminViewSet
+from .views import PackageViewSet, PackageImageViewSet, PackageAdminViewSet,PublicPackageDetailView
 
 app_name = 'packages'
 
@@ -30,7 +30,7 @@ urlpatterns = [
     # GET /package/packages/ - List packages (filtered by user role)
     # GET /package/packages/{id}/ - Get package details (increments view count)
     path('package/', include(router.urls)),
-    
+    path("public/package/", PublicPackageDetailView.as_view(), name="public-package-detail"),
     # Custom actions for public users (role-based filtering applied)
     # GET /package/packages/featured/ - Get featured packages
     path('package/packages/featured/', PackageViewSet.as_view({'get': 'featured'}), name='packages-featured'),
@@ -121,6 +121,7 @@ urlpatterns = [
     path('package/admin/packages/analytics/', 
          PackageAdminViewSet.as_view({'get': 'analytics'}), 
          name='admin-packages-analytics'),
+     
 ]
 
 # =============================================================================
