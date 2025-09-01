@@ -400,25 +400,3 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
 # Create logs directory if it doesn't exist
 os.makedirs(BASE_DIR / 'logs', exist_ok=True)
 
-# Environment-specific settings
-if DEBUG:
-    INSTALLED_APPS.append('debug_toolbar')
-    MIDDLEWARE.insert(0, 'debug_toolbar.middleware.DebugToolbarMiddleware')
-    INTERNAL_IPS = ['127.0.0.1']
-
-# Sentry Configuration for Production
-if not DEBUG:
-    import sentry_sdk
-    from sentry_sdk.integrations.django import DjangoIntegration
-    from sentry_sdk.integrations.celery import CeleryIntegration
-    
-    sentry_sdk.init(
-        dsn=config('SENTRY_DSN', default=''),
-        integrations=[
-            DjangoIntegration(auto_enabling=True),
-            CeleryIntegration(monitor_beat_tasks=True),
-        ],
-        traces_sample_rate=0.1,
-        send_default_pii=True,
-        environment=config('ENVIRONMENT', default='production'),
-    )
