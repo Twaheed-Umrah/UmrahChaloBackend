@@ -982,33 +982,40 @@ class ServiceProviderManagementDetailView(generics.RetrieveUpdateAPIView):
         """
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
-        
+
         # Handle verification status updates
         if 'verification_status' in request.data:
             verification_status = request.data.get('verification_status')
             verification_notes = request.data.get('verification_notes', '')
-            
+
             if verification_status in ['verified', 'rejected']:
                 instance.verification_status = verification_status
                 instance.verification_notes = verification_notes
                 instance.verified_by = request.user
                 instance.verified_at = timezone.now()
                 instance.save()
-        
+
+            # Update related User is_verified
+                if verification_status == 'verified':
+                    instance.user.is_verified = True
+                else:
+                    instance.user.is_verified = False
+                instance.user.save(update_fields=['is_verified'])
+
         # Handle feature status updates
         if 'is_featured' in request.data:
             instance.is_featured = request.data.get('is_featured')
             instance.save()
-            
+
         # Handle active status updates
         if 'is_active' in request.data:
             instance.is_active = request.data.get('is_active')
             instance.save()
-            
+
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
-        
+
         return Response(serializer.data)
 
 
@@ -1172,58 +1179,41 @@ class BulkUserActionView(APIView):
 
 
 class ProviderVerificationView(APIView):
-    """
-    API endpoint for admin to verify service providers
-    """
     permission_classes = [IsSuperAdmin]
-    
+
     def post(self, request, provider_id):
         provider = get_object_or_404(ServiceProviderProfile, id=provider_id)
-        action = request.data.get('action')  # 'approve' or 'reject'
+        action = request.data.get('action')
         notes = request.data.get('notes', '')
-        
+
+        if action not in ['approve', 'reject']:
+            return Response({'error': 'Invalid action. Use "approve" or "reject"'}, status=400)
+
+        # Update provider
+        provider.verification_status = 'verified' if action == 'approve' else 'rejected'
+        provider.verification_notes = notes
         if action == 'approve':
-            provider.verification_status = 'verified'
             provider.verified_by = request.user
             provider.verified_at = timezone.now()
-            provider.verification_notes = notes
-            provider.save()
-            provider.user.is_verified = True
-            provider.user.save(update_fields=['is_verified'])
-            
-            # Send approval notification
-            # You can implement email notification here
-            NotificationService.send_verification_complete_notification(provider)
-            message = 'Provider approved successfully'
-            
-        elif action == 'reject':
-            provider.verification_status = 'rejected'
-            provider.verification_notes = notes
-            provider.save()
-            
-            # Send rejection notification
-            # You can implement email notification here
-            NotificationService.send_verification_complete_notification(provider)
-            message = 'Provider rejected successfully'
-            
+            # Update user verified status
+            User.objects.filter(id=provider.user_id).update(is_verified=True)
         else:
-            return Response(
-                {'error': 'Invalid action. Use "approve" or "reject"'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Log activity
+            User.objects.filter(id=provider.user_id).update(is_verified=False)
+        provider.save()
+
+        # Send notification
+        NotificationService.send_verification_complete_notification(provider)
+
+        # Log activity safely
         UserActivity.objects.create(
             user=request.user,
-            activity_type='provider_verification',
+            activity_type='inquiry_sent',
             description=f'Provider {action}d',
-            ip_address=get_client_ip(request),
+            ip_address=get_client_ip(request)[:45],
             metadata={'provider_id': provider_id, 'action': action}
         )
-        
-        return Response({
-            'message': message
-        }, status=status.HTTP_200_OK)
+
+        return Response({'message': f'Provider {action}d successfully'}, status=200)
 
 
 # API Helper Views

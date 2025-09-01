@@ -8,12 +8,13 @@ import dj_database_url
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = config('SECRET_KEY', default='django-insecure-key-change-in-production')
+SECRET_KEY = 'umrah-chalo-786-services'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = config('DEBUG', default=True, cast=bool)
+DEBUG = False
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ['umrachalo.tawheedumrah.com',"umrachalo.com","localhost",
+    "127.0.0.1",]
 
 # Application definition
 DJANGO_APPS = [
@@ -93,13 +94,22 @@ TEMPLATES = [
 WSGI_APPLICATION = 'umrahchalo.wsgi.application'
 
 # Database
+# settings.py
+
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'mssql',
+        'NAME': 'Umrahchalo',
+        'USER': 'Umrahchalo',
+        'PASSWORD': 'Umrahchalo@54321',
+        'HOST': '103.21.58.193',  # Or use Plesk-provided host
+        'PORT': '1433',            # Plesk SQL port
+        'OPTIONS': {
+            'driver': 'ODBC Driver 18 for SQL Server',
+            'extra_params': 'TrustServerCertificate=yes;'
+        },
     }
 }
-
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -179,12 +189,14 @@ SPECTACULAR_SETTINGS = {
 # CORS Settings
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
-    "http://localhost:5173",]
+    "http://localhost:5173",
+    "http://umrachalo.com",]
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5173",
+    "http://umrachalo.com",
 ]
 
 # Celery Configuration
@@ -383,7 +395,8 @@ DJANGO_CKEDITOR_5_CONFIGS = {
 # Phone Number Configuration
 PHONENUMBER_DEFAULT_REGION = 'IN'
 PHONENUMBER_DEFAULT_FORMAT = 'NATIONAL'
-
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
 # Create logs directory if it doesn't exist
 os.makedirs(BASE_DIR / 'logs', exist_ok=True)
 
