@@ -5,17 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Welcome to Umrah Chalo</title>
     <style>
+        /* Reset and base styles */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             line-height: 1.6;
             color: #333;
             background-color: #f4f4f4;
             margin: 0;
-            padding: 20px;
+            padding: 10px;
         }
         
+        /* Main container */
         .email-container {
             max-width: 600px;
+            width: 100%;
             margin: 0 auto;
             background: white;
             border-radius: 12px;
@@ -23,105 +32,159 @@
             overflow: hidden;
         }
         
+        /* Header styles */
         .header {
             background: linear-gradient(135deg, #1B7B4C 0%, #2E8B57 100%);
             color: white;
-            padding: 30px;
+            padding: 20px;
             text-align: center;
         }
         
         .header h1 {
             margin: 0;
-            font-size: 28px;
+            font-size: clamp(20px, 4vw, 28px);
             font-weight: 600;
+            word-wrap: break-word;
         }
         
         .brand-name {
-            font-size: 20px;
-            margin-top: 15px;
+            font-size: clamp(16px, 3vw, 20px);
+            margin-top: 10px;
             opacity: 0.9;
         }
         
+        /* Content area */
         .content {
-            padding: 30px;
+            padding: 20px;
         }
         
         .content h2 {
             color: #2c3e50;
             margin-top: 0;
-            margin-bottom: 20px;
-            font-size: 22px;
+            margin-bottom: 15px;
+            font-size: clamp(18px, 3.5vw, 22px);
         }
         
+        .content p {
+            margin-bottom: 15px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        /* Welcome box */
         .welcome-box {
             background: linear-gradient(135deg, #e8f5e8 0%, #d4edda 100%);
             border-left: 4px solid #1B7B4C;
-            padding: 25px;
+            padding: 20px;
             margin: 20px 0;
             border-radius: 8px;
             text-align: center;
         }
         
+        .welcome-box h3 {
+            color: #1B7B4C;
+            margin-top: 0;
+            margin-bottom: 10px;
+            font-size: clamp(16px, 3vw, 20px);
+        }
+        
+        /* Steps grid - responsive */
         .steps-grid {
             display: grid;
             grid-template-columns: 1fr;
-            gap: 15px;
-            margin: 25px 0;
+            gap: 12px;
+            margin: 20px 0;
         }
         
         .step-card {
             background: #f8f9fa;
-            padding: 20px;
+            padding: 15px;
             border-radius: 8px;
             border-left: 4px solid #1B7B4C;
             display: flex;
-            align-items: center;
+            align-items: flex-start;
         }
         
         .step-number {
             background: #1B7B4C;
             color: white;
-            width: 40px;
-            height: 40px;
+            width: 35px;
+            height: 35px;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             font-weight: bold;
-            margin-right: 15px;
+            margin-right: 12px;
             flex-shrink: 0;
+            font-size: 14px;
         }
         
+        .step-content {
+            flex: 1;
+            font-size: 14px;
+        }
+        
+        .step-content strong {
+            display: block;
+            margin-bottom: 5px;
+            color: #2c3e50;
+        }
+        
+        /* Features grid - responsive */
         .features-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-            margin: 25px 0;
+            grid-template-columns: 1fr;
+            gap: 12px;
+            margin: 20px 0;
         }
         
         .feature-card {
             background: #ffffff;
-            padding: 20px;
+            padding: 15px;
             border-radius: 8px;
             border: 2px solid #e9ecef;
             text-align: center;
         }
         
         .feature-icon {
-            font-size: 32px;
-            margin-bottom: 10px;
+            font-size: 24px;
+            margin-bottom: 8px;
+            display: block;
+        }
+        
+        .feature-card strong {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 14px;
+            color: #2c3e50;
+        }
+        
+        .feature-card p {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 0;
+        }
+        
+        /* Button styles */
+        .btn-container {
+            text-align: center;
+            margin: 20px 0;
         }
         
         .btn {
             display: inline-block;
-            padding: 12px 30px;
+            padding: 12px 25px;
             background: linear-gradient(135deg, #1B7B4C 0%, #2E8B57 100%);
             color: white;
             text-decoration: none;
             border-radius: 6px;
             font-weight: 600;
-            margin: 15px 0;
+            margin: 8px;
             transition: all 0.3s ease;
+            font-size: 14px;
+            min-width: 120px;
+            text-align: center;
         }
         
         .btn:hover {
@@ -129,133 +192,424 @@
             box-shadow: 0 4px 12px rgba(27, 123, 76, 0.3);
         }
         
+        /* Contact info */
         .contact-info {
             background: #f8f9fa;
-            padding: 20px;
+            padding: 15px;
             border-radius: 8px;
-            margin: 25px 0;
+            margin: 20px 0;
         }
         
-        .footer {
-            background: #1B7B4C;
-            color: white;
-            padding: 20px 30px;
-            text-align: center;
+        .contact-info h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            font-size: 16px;
+            color: #2c3e50;
+        }
+        
+        .contact-info ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        
+        .contact-info li {
+            margin-bottom: 8px;
+            font-size: 14px;
+            padding-left: 0;
+        }
+        
+        /* Resources list */
+        .resources-list {
+            margin: 15px 0;
+        }
+        
+        .resources-list ul {
+            padding-left: 20px;
+        }
+        
+        .resources-list li {
+            margin-bottom: 8px;
             font-size: 14px;
         }
         
+        .resources-list a {
+            color: #1B7B4C;
+            text-decoration: none;
+        }
+        
+        .resources-list a:hover {
+            text-decoration: underline;
+        }
+        
+        /* Quote styles */
+        .quote {
+            font-style: italic;
+            color: #666;
+            margin: 20px 0;
+            padding: 15px;
+            border-left: 3px solid #1B7B4C;
+            background: #f9f9f9;
+            border-radius: 0 6px 6px 0;
+            font-size: 14px;
+        }
+        
+        /* Footer */
+        .footer {
+            background: #1B7B4C;
+            color: white;
+            padding: 20px;
+            text-align: center;
+            font-size: 13px;
+        }
+        
+        .footer small {
+            font-size: 11px;
+            opacity: 0.8;
+        }
+        
+        /* Umrah icon */
         .umrah-icon {
-            font-size: 24px;
+            font-size: 20px;
             margin-right: 8px;
+        }
+        
+        /* Conditional content visibility */
+        .provider-content {
+            display: block;
+        }
+        
+        .pilgrim-content {
+            display: none;
+        }
+        
+        /* Responsive breakpoints */
+        @media (min-width: 480px) {
+            body {
+                padding: 20px;
+            }
+            
+            .header {
+                padding: 30px;
+            }
+            
+            .content {
+                padding: 30px;
+            }
+            
+            .step-number {
+                width: 40px;
+                height: 40px;
+                font-size: 16px;
+            }
+            
+            .step-card {
+                padding: 20px;
+            }
+            
+            .features-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+            
+            .feature-card {
+                padding: 20px;
+            }
+            
+            .feature-icon {
+                font-size: 32px;
+            }
+            
+            .btn {
+                margin: 10px;
+                padding: 14px 30px;
+                font-size: 16px;
+            }
+        }
+        
+        @media (min-width: 768px) {
+            .features-grid {
+                grid-template-columns: 1fr 1fr;
+                gap: 15px;
+            }
+            
+            .steps-grid {
+                gap: 15px;
+            }
+        }
+        
+        /* Print styles */
+        @media print {
+            body {
+                background: white;
+                color: black;
+            }
+            
+            .email-container {
+                box-shadow: none;
+            }
+            
+            .btn {
+                border: 2px solid #1B7B4C;
+                color: #1B7B4C;
+                background: transparent;
+            }
+        }
+        
+        /* High contrast mode */
+        @media (prefers-contrast: high) {
+            .welcome-box {
+                border: 2px solid #1B7B4C;
+            }
+            
+            .step-card {
+                border: 1px solid #333;
+            }
+            
+            .feature-card {
+                border: 2px solid #333;
+            }
+        }
+        
+        /* Reduced motion */
+        @media (prefers-reduced-motion: reduce) {
+            .btn {
+                transition: none;
+            }
+            
+            .btn:hover {
+                transform: none;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="email-container">
+       <div class="email-container">
         <div class="header">
             <h1><span class="umrah-icon">🕌</span> Welcome to Umrah Chalo!</h1>
-            <div class="brand-name">Your trusted Umrah partner</div>
+            <div class="brand-name provider-content">Your trusted Umrah partner</div>
+            <div class="brand-name pilgrim-content">Your journey to the Holy Kaaba begins here</div>
         </div>
         <div class="content">
             <h2>Assalam-o-Alaikum {{user_name}},</h2>
             
-            <div class="welcome-box">
-                <h3 style="color: #1B7B4C; margin-top: 0;">Welcome to the Umrah Chalo family!</h3>
-                <p style="margin-bottom: 0;">Thank you for joining us. We're honored to be part of your journey in serving pilgrims on their sacred path to the Holy Kaaba.</p>
+            <!-- Provider Welcome Box -->
+            <div class="welcome-box provider-content">
+                <h3>Welcome to the Umrah Chalo family!</h3>
+                <p>Thank you for joining us. We're honored to be part of your journey in serving pilgrims on their sacred path to the Holy Kaaba.</p>
             </div>
             
-            <p>You've taken the first step towards building a successful Umrah business. Our platform connects you with thousands of Muslims seeking authentic and reliable Umrah experiences.</p>
+            <!-- Pilgrim Welcome Box -->
+            <div class="welcome-box pilgrim-content">
+                <h3>Your sacred journey awaits!</h3>
+                <p>Thank you for choosing Umrah Chalo. We're honored to help you find the perfect Umrah package for your spiritual journey to the Holy Cities of Makkah and Madinah.</p>
+            </div>
             
-            <div class="steps-grid">
-                <div class="step-card">
-                    <div class="step-number">1</div>
-                    <div>
-                        <strong>Complete Your Profile</strong><br>
-                        Add your business information, photos, and credentials to build trust with customers.
+            <!-- Provider Content -->
+            <div class="provider-content">
+                <p>You've taken the first step towards building a successful Umrah business. Our platform connects you with thousands of Muslims seeking authentic and reliable Umrah experiences.</p>
+                
+                <div class="steps-grid">
+                    <div class="step-card">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <strong>Complete Your Profile</strong>
+                            Add your business information, photos, and credentials to build trust with customers.
+                        </div>
+                    </div>
+                    <div class="step-card">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <strong>Get Verified</strong>
+                            Submit your documents for verification to earn the trusted provider badge.
+                        </div>
+                    </div>
+                    <div class="step-card">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <strong>Upload Packages</strong>
+                            Create compelling Umrah packages with detailed descriptions and competitive pricing.
+                        </div>
+                    </div>
+                    <div class="step-card">
+                        <div class="step-number">4</div>
+                        <div class="step-content">
+                            <strong>Start Receiving Bookings</strong>
+                            Get inquiries from customers and convert them into confirmed bookings.
+                        </div>
                     </div>
                 </div>
-                <div class="step-card">
-                    <div class="step-number">2</div>
-                    <div>
-                        <strong>Get Verified</strong><br>
-                        Submit your documents for verification to earn the trusted provider badge.
+                
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon">📊</div>
+                        <strong>Analytics Dashboard</strong>
+                        <p>Track your performance and bookings</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">💬</div>
+                        <strong>Direct Messaging</strong>
+                        <p>Communicate with customers instantly</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">⭐</div>
+                        <strong>Review System</strong>
+                        <p>Build reputation through customer feedback</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">📱</div>
+                        <strong>Mobile Friendly</strong>
+                        <p>Manage your business on the go</p>
                     </div>
                 </div>
-                <div class="step-card">
-                    <div class="step-number">3</div>
-                    <div>
-                        <strong>Upload Packages</strong><br>
-                        Create compelling Umrah packages with detailed descriptions and competitive pricing.
+                
+                <div class="btn-container">
+                    <a href="{{dashboard_url}}" class="btn">Complete Your Profile</a>
+                    <a href="{{help_url}}" class="btn">Get Help</a>
+                </div>
+                
+                <div class="contact-info">
+                    <h3>🤝 Need Help Getting Started?</h3>
+                    <p>Our support team is here to help you succeed:</p>
+                    <ul>
+                        <li><strong>Email:</strong> support@umrahchalo.com</li>
+                        <li><strong>Phone:</strong> {{support_phone}}</li>
+                        <li><strong>WhatsApp:</strong> {{whatsapp_number}}</li>
+                        <li><strong>Help Center:</strong> <a href="{{help_center_url}}" style="color: #1B7B4C;">Visit Help Center</a></li>
+                    </ul>
+                </div>
+                
+                <div class="resources-list">
+                    <p><strong>📚 Helpful Resources:</strong></p>
+                    <ul>
+                        <li><a href="{{provider_guide_url}}">Provider Success Guide</a></li>
+                        <li><a href="{{best_practices_url}}">Best Practices for Umrah Providers</a></li>
+                        <li><a href="{{pricing_guide_url}}">Pricing Strategy Guide</a></li>
+                        <li><a href="{{customer_service_url}}">Customer Service Tips</a></li>
+                    </ul>
+                </div>
+            </div>
+            
+            <!-- Pilgrim Content -->
+            <div class="pilgrim-content">
+                <p>You've joined thousands of Muslims who trust Umrah Chalo to find the perfect pilgrimage experience. We're here to help you discover authentic and reliable Umrah packages tailored to your needs.</p>
+                
+                <div class="steps-grid">
+                    <div class="step-card">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <strong>Browse Packages</strong>
+                            Explore verified Umrah packages from trusted providers with detailed descriptions and transparent pricing.
+                        </div>
+                    </div>
+                    <div class="step-card">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <strong>Compare & Choose</strong>
+                            Compare different packages, read reviews from other pilgrims, and select what suits you best.
+                        </div>
+                    </div>
+                    <div class="step-card">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <strong>Connect with Providers</strong>
+                            Contact providers directly, ask questions, and customize your package if needed.
+                        </div>
+                    </div>
+                    <div class="step-card">
+                        <div class="step-number">4</div>
+                        <div class="step-content">
+                            <strong>Book Your Journey</strong>
+                            Secure your booking with trusted payment methods and start preparing for your spiritual journey.
+                        </div>
                     </div>
                 </div>
-                <div class="step-card">
-                    <div class="step-number">4</div>
-                    <div>
-                        <strong>Start Receiving Bookings</strong><br>
-                        Get inquiries from customers and convert them into confirmed bookings.
+                
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon">🔍</div>
+                        <strong>Easy Search</strong>
+                        <p>Find packages by budget, duration, and preferences</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">✅</div>
+                        <strong>Verified Providers</strong>
+                        <p>All providers are verified for your peace of mind</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">💬</div>
+                        <strong>Direct Communication</strong>
+                        <p>Chat directly with providers for personalized service</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">⭐</div>
+                        <strong>Real Reviews</strong>
+                        <p>Read authentic reviews from fellow pilgrims</p>
                     </div>
                 </div>
+                
+                <div class="btn-container">
+                    <a href="{{browse_packages_url}}" class="btn">Browse Packages</a>
+                    <a href="{{help_url}}" class="btn">Get Help</a>
+                </div>
+                
+                <div class="contact-info">
+                    <h3>🕋 Need Help Planning Your Umrah?</h3>
+                    <p>Our support team is here to guide you:</p>
+                    <ul>
+                        <li><strong>Email:</strong> support@umrahchalo.com</li>
+                        <li><strong>Phone:</strong> {{support_phone}}</li>
+                        <li><strong>WhatsApp:</strong> {{whatsapp_number}}</li>
+                        <li><strong>Help Center:</strong> <a href="{{help_center_url}}" style="color: #1B7B4C;">Visit Help Center</a></li>
+                    </ul>
+                </div>
+                
+                <div class="resources-list">
+                    <p><strong>📖 Helpful Resources:</strong></p>
+                    <ul>
+                        <li><a href="{{umrah_guide_url}}">Complete Umrah Guide</a></li>
+                        <li><a href="{{duas_url}}">Essential Duas for Umrah</a></li>
+                        <li><a href="{{packing_checklist_url}}">Umrah Packing Checklist</a></li>
+                        <li><a href="{{preparation_tips_url}}">Spiritual Preparation Tips</a></li>
+                    </ul>
+                </div>
             </div>
             
-            <div class="features-grid">
-                <div class="feature-card">
-                    <div class="feature-icon">📊</div>
-                    <strong>Analytics Dashboard</strong>
-                    <p>Track your performance and bookings</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">💬</div>
-                    <strong>Direct Messaging</strong>
-                    <p>Communicate with customers instantly</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">⭐</div>
-                    <strong>Review System</strong>
-                    <p>Build reputation through customer feedback</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">📱</div>
-                    <strong>Mobile Friendly</strong>
-                    <p>Manage your business on the go</p>
-                </div>
-            </div>
-            
-            <div style="text-align: center;">
-                <a href="{{dashboard_url}}" class="btn">Complete Your Profile</a>
-                <a href="{{help_url}}" class="btn" style="margin-left: 10px;">Get Help</a>
-            </div>
-            
-            <div class="contact-info">
-                <h3>🤝 Need Help Getting Started?</h3>
-                <p>Our support team is here to help you succeed:</p>
-                <ul>
-                    <li><strong>Email:</strong> support@umrahchalo.com</li>
-                    <li><strong>Phone:</strong> {{support_phone}}</li>
-                    <li><strong>WhatsApp:</strong> {{whatsapp_number}}</li>
-                    <li><strong>Help Center:</strong> <a href="{{help_center_url}}">Visit Help Center</a></li>
-                </ul>
-            </div>
-            
-            <p><strong>📚 Helpful Resources:</strong></p>
-            <ul>
-                <li><a href="{{provider_guide_url}}">Provider Success Guide</a></li>
-                <li><a href="{{best_practices_url}}">Best Practices for Umrah Providers</a></li>
-                <li><a href="{{pricing_guide_url}}">Pricing Strategy Guide</a></li>
-                <li><a href="{{customer_service_url}}">Customer Service Tips</a></li>
-            </ul>
-            
-            <p style="font-style: italic; color: #666; margin-top: 30px;">
+            <div class="quote">
                 "And whoever honors the sacred ordinances of Allah - it is best for him in the sight of his Lord." (Quran 22:30)
+            </div>
+            
+            <p style="font-style: italic; color: #666;" class="provider-content">
+                May Allah bless your efforts in facilitating the sacred journey of His servants to the Holy House.
             </p>
             
-            <p style="font-style: italic; color: #666;">
-                May Allah bless your efforts in facilitating the sacred journey of His servants to the Holy House.
+            <p style="font-style: italic; color: #666;" class="pilgrim-content">
+                May Allah accept your Umrah and grant you a spiritually fulfilling journey to His Holy House.
             </p>
         </div>
         <div class="footer">
-            Your success is our mission • <strong>Umrah Chalo</strong> - Your trusted Umrah partner<br>
+            <div class="provider-content">Your success is our mission • <strong>Umrah Chalo</strong> - Your trusted Umrah partner</div>
+            <div class="pilgrim-content">Your spiritual journey, our commitment • <strong>Umrah Chalo</strong> - Your trusted Umrah companion</div>
+            <br>
             <small>© 2025 Umrah Chalo. All rights reserved.</small>
         </div>
     </div>
+
+    <script>
+        // Demo function to toggle between user types
+        function toggleUserType(userType) {
+            const providerElements = document.querySelectorAll('.provider-content');
+            const pilgrimElements = document.querySelectorAll('.pilgrim-content');
+            
+            if (userType === 'provider') {
+                providerElements.forEach(el => el.style.display = 'block');
+                pilgrimElements.forEach(el => el.style.display = 'none');
+            } else {
+                providerElements.forEach(el => el.style.display = 'none');
+                pilgrimElements.forEach(el => el.style.display = 'block');
+            }
+        }
+        
+        // You can set the default user type here based on your backend data
+        // For example: toggleUserType('{{user_type}}');
+    </script>
 </body>
 </html>

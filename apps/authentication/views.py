@@ -27,6 +27,8 @@ from .serializers import (
     LoginAttemptSerializer, UserSessionSerializer, EmailVerificationSerializer,
     PhoneVerificationSerializer, UserManagementSerializer, BulkUserActionSerializer,LocationUpdateSerializer
 )
+import logging
+logger = logging.getLogger(__name__)
 from apps.core.utils import send_otp, generate_otp, get_client_ip, get_user_agent
 from .utils import send_email_otp,send_sms_otp
 from apps.core.pagination import CustomPagination
@@ -62,10 +64,11 @@ class UserRegistrationView(generics.CreateAPIView):
         except Exception as e:
             print(f"Failed to log activity: {e}")
         try:
-                    NotificationService.send_welcome_notification(user)
-                    print(f"Welcome notification sent to {user.email}")
-        except Exception as e:
-                    print(f"Failed to send welcome notification: {e}")
+                NotificationService.send_welcome_notification(user)
+                logger.info(f"Welcome notification sent synchronously to {user.email}")
+        except Exception as sync_error:
+                 logger.error(f"Failed to send welcome notification synchronously: {sync_error}")
+                 
         response_data = {
             'message': 'User registered successfully. Please check your email for verification.',
             'user_id': str(user.id),
@@ -486,10 +489,10 @@ class ServiceProviderRegistrationView(generics.CreateAPIView):
 
         # Send welcome notification
         try:
-            NotificationService.send_welcome_notification(user)
-            print(f"Welcome notification sent to {user.email}")
-        except Exception as e:
-            print(f"Failed to send welcome notification: {e}")
+                NotificationService.send_welcome_notification(user)
+                logger.info(f"Welcome notification sent synchronously to {user.email}")
+        except Exception as sync_error:
+                 logger.error(f"Failed to send welcome notification synchronously: {sync_error}")
 
         # Prepare response
         response_data = {
@@ -1190,7 +1193,7 @@ class ProviderVerificationView(APIView):
             
             # Send approval notification
             # You can implement email notification here
-            
+            NotificationService.send_verification_complete_notification(provider)
             message = 'Provider approved successfully'
             
         elif action == 'reject':
@@ -1200,7 +1203,7 @@ class ProviderVerificationView(APIView):
             
             # Send rejection notification
             # You can implement email notification here
-            
+            NotificationService.send_verification_complete_notification(provider)
             message = 'Provider rejected successfully'
             
         else:
@@ -1665,61 +1668,44 @@ def delete_user_account(request):
         'message': 'Account deleted successfully'
     }, status=status.HTTP_200_OK)
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def get_nearby_providers(request):
-    """
-    Get service providers near user's current location
-    """
-    user = request.user
-    
-    if not user.has_location:
-        return Response({
-            'error': 'User location not available. Please update your location first.'
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
-    radius = request.GET.get('radius', 10)  # Default 10km radius
-    business_type = request.GET.get('business_type')
-    
     try:
-        radius = float(radius)
-        user_lat = float(user.latitude)
-        user_lng = float(user.longitude)
-        
-        # Simple bounding box filter
-        lat_range = radius / 111.0
-        lng_range = radius / (111.0 * abs(user_lat))
-        
-        queryset = ServiceProviderProfile.objects.filter(
-            is_active=True,
-            verification_status='verified',
-            user__latitude__gte=user_lat - lat_range,
-            user__latitude__lte=user_lat + lat_range,
-            user__longitude__gte=user_lng - lng_range,
-            user__longitude__lte=user_lng + lng_range
-        ).exclude(
-            user__latitude__isnull=True,
-            user__longitude__isnull=True
-        )
-        
-        if business_type:
-            queryset = queryset.filter(business_type=business_type)
-        
-        # Order by rating and featured status
-        queryset = queryset.order_by('-is_featured', '-average_rating')
-        
-        serializer = ServiceProviderListSerializer(queryset, many=True)
-        
+        user_lat = float(request.GET.get('latitude'))
+        user_lng = float(request.GET.get('longitude'))
+        radius = float(request.GET.get('radius', 10))
+    except (TypeError, ValueError):
         return Response({
-            'message': f'Found {queryset.count()} providers within {radius}km',
-            'user_location': user.get_location_info(),
-            'providers': serializer.data
-        }, status=status.HTTP_200_OK)
-        
-    except (ValueError, TypeError):
-        return Response({
-            'error': 'Invalid radius value'
+            'error': 'Latitude, longitude, and radius are required and must be valid numbers.'
         }, status=status.HTTP_400_BAD_REQUEST)
 
+    lat_range = radius / 111.0
+    lng_range = radius / (111.0 * abs(user_lat))
+
+    queryset = ServiceProviderProfile.objects.filter(
+        is_active=True,
+        verification_status='verified',
+        user__latitude__gte=user_lat - lat_range,
+        user__latitude__lte=user_lat + lat_range,
+        user__longitude__gte=user_lng - lng_range,
+        user__longitude__lte=user_lng + lng_range
+    ).exclude(
+        user__latitude__isnull=True,
+        user__longitude__isnull=True
+    )
+
+    business_type = request.GET.get('business_type')
+    if business_type:
+        queryset = queryset.filter(business_type=business_type)
+
+    queryset = queryset.order_by('-is_featured', '-average_rating')
+    serializer = ServiceProviderListSerializer(queryset, many=True)
+
+    return Response({
+        'message': f'Found {queryset.count()} providers within {radius}km',
+        'user_location': {"latitude": user_lat, "longitude": user_lng},
+        'providers': serializer.data
+    }, status=status.HTTP_200_OK)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])

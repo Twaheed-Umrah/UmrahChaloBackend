@@ -317,7 +317,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
             permission_classes = [AllowAny]
         elif self.action == 'create':
             permission_classes = [IsAuthenticated,IsActiveSubscription, IsVerifiedProvider, IsServiceProvider]
-        elif self.action in ['update', 'partial_update', 'destroy']:
+        elif self.action in ['partial_update', 'destroy']:
             permission_classes = [IsAuthenticated]
         elif self.action == 'update_status':
             permission_classes = [IsSuperAdmin]
@@ -373,78 +373,38 @@ class ServiceViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdminOrSuperAdmin])
     def update_status(self, request, pk=None):
-        """
-        Update service status with notifications
-        """
-        try:
-            service = Service.objects.get(pk=pk)
-        except Service.DoesNotExist:
-            return Response({'error': 'Service not found'}, status=status.HTTP_404_NOT_FOUND)
+       """    Update service status with notifications    """
+       try:
+           service = Service.objects.get(pk=pk)
+       except Service.DoesNotExist:
+           return Response({'error': 'Service not found'}, status=status.HTTP_404_NOT_FOUND)
+       # Get the old status before update
+       old_status = service.status
+       # Get the requested new status directly from request
+       requested_status = request.data.get('status')
+
+       serializer = ServiceStatusUpdateSerializer(service, data=request.data, context={'request': request})
+       if serializer.is_valid():
+           try:
+            # First send notifications based on status change
+               if old_status != requested_status:
+                   if requested_status == 'published':
+                       NotificationService.send_service_approved_notification(service)
+                   elif requested_status == 'rejected':
+                       rejection_reason = request.data.get(
+                           'rejection_reason', 
+                           'Please review and improve your service details.'
+                       )
+                       NotificationService.send_service_rejected_notification(service, rejection_reason)
+                   
+           except Exception as notification_error:
+               logger.error(f"Failed to send service status notification: {notification_error}")
         
-        # Get the old status before update
-        old_status = service.status
-        
-        serializer = ServiceStatusUpdateSerializer(service, data=request.data, context={'request': request})
-        if serializer.is_valid():
-            serializer.save()
-            
-            # Get the new status after update
-            new_status = service.status
-            
-            # Send notifications based on status change
-            try:
-                if old_status != new_status:
-                    if new_status == 'approved' or new_status == 'verified':
-                        # Send approval notification
-                        NotificationService.create_notification(
-                            recipient=service.provider.user,
-                            notification_type='service_approved',
-                            title="Service Approved!",
-                            message=f"Your service '{service.title}' has been approved and is now live on Umrah Chalo.",
-                            data={
-                                'service_name': service.title,
-                                'service_id': service.id,
-                                'service_type': service.get_service_type_display(),
-                                'provider_name': getattr(service.provider, 'company_name', service.provider.user.full_name),
-                                'approval_date': timezone.now().strftime('%Y-%m-%d'),
-                                'service_url': f"{getattr(settings, 'FRONTEND_URL', '')}/services/{service.id}/",
-                                'dashboard_url': f"{getattr(settings, 'FRONTEND_URL', '')}/provider/dashboard/",
-                                'service_price': f"₹{service.price}" if service.price else 'Contact for pricing',
-                            },
-                            related_object=service,
-                            priority='high'
-                        )
-                        
-                    elif new_status == 'rejected':
-                        # Send rejection notification
-                        rejection_reason = request.data.get('rejection_reason', 'Please review and improve your service details.')
-                        
-                        NotificationService.create_notification(
-                            recipient=service.provider.user,
-                            notification_type='service_rejected',
-                            title="Service Needs Attention",
-                            message=f"Your service '{service.title}' requires some improvements before it can be approved.",
-                            data={
-                                'service_name': service.title,
-                                'service_id': service.id,
-                                'service_type': service.get_service_type_display(),
-                                'provider_name': getattr(service.provider, 'company_name', service.provider.user.full_name),
-                                'rejection_reason': rejection_reason,
-                                'rejection_date': timezone.now().strftime('%Y-%m-%d'),
-                                'edit_service_url': f"{getattr(settings, 'FRONTEND_URL', '')}/provider/services/{service.id}/edit/",
-                                'dashboard_url': f"{getattr(settings, 'FRONTEND_URL', '')}/provider/dashboard/",
-                                'support_url': f"{getattr(settings, 'FRONTEND_URL', '')}/support/",
-                            },
-                            related_object=service,
-                            priority='high'
-                        )
-                        
-            except Exception as notification_error:
-                # Log the error but don't fail the status update
-                logger.error(f"Failed to send service status notification: {notification_error}")
-            
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        # Now save the new status in DB
+           serializer.save()
+           return Response(serializer.data)
+
+       return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=False, methods=['get'])
     def my_services(self, request):
@@ -1084,7 +1044,7 @@ class PublicServiceDetailView(APIView):
 
         try:
             service = Service.objects.get(id=service_id)  # 👈 no access filter
-            serializer = ServiceDetailSerializer(service)
+            serializer = ServiceDetailSerializer(service, context={'request': request})
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         except Service.DoesNotExist:

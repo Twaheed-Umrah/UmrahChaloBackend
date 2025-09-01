@@ -1,0 +1,1 @@
+❌ Your package "{{ service_name }}" was rejected. Please review our guidelines and resubmit.

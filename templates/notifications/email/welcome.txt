@@ -1,10 +1,11 @@
-UMRAH CHALO - WELCOME!
+🕌 UMRAH CHALO - WELCOME!
 
 Assalam-o-Alaikum {{user_name}},
 
+{{#if_provider}}
 Welcome to the Umrah Chalo family!
 
-Thank you for joining us. Wen are honored to be part of your journey in serving pilgrims on their sacred path to the Holy Kaaba.
+Thank you for joining us. We are honored to be part of your journey in serving pilgrims on their sacred path to the Holy Kaaba.
 
 You have taken the first step towards building a successful Umrah business. Our platform connects you with thousands of Muslims seeking authentic and reliable Umrah experiences.
 
@@ -28,27 +29,92 @@ PLATFORM FEATURES:
 - Review System: Build reputation through customer feedback
 - Mobile Friendly: Manage your business on the go
 
-Complete your profile: {{dashboard_url}}
-Get help: {{help_url}}
+🔗 Complete your profile: {{dashboard_url}}
+🔗 Get help: {{help_url}}
 
-NEED HELP GETTING STARTED?
+🤝 NEED HELP GETTING STARTED?
 Our support team is here to help you succeed:
 - Email: support@umrahchalo.com
 - Phone: {{support_phone}}
 - WhatsApp: {{whatsapp_number}}
 - Help Center: {{help_center_url}}
 
-HELPFUL RESOURCES:
+📚 HELPFUL RESOURCES:
 - Provider Success Guide: {{provider_guide_url}}
 - Best Practices for Umrah Providers: {{best_practices_url}}
 - Pricing Strategy Guide: {{pricing_guide_url}}
 - Customer Service Tips: {{customer_service_url}}
 
+"And whoever honors the sacred ordinances of Allah - it is best for him in the sight of his Lord." (Quran 22:30)
+
 May Allah bless your efforts in facilitating the sacred journey of His servants to the Holy House.
+{{/if_provider}}
+
+{{#if_pilgrim}}
+Your sacred journey awaits!
+
+Thank you for choosing Umrah Chalo. We are honored to help you find the perfect Umrah package for your spiritual journey to the Holy Cities of Makkah and Madinah.
+
+You have joined thousands of Muslims who trust Umrah Chalo to find authentic and reliable Umrah experiences. We are here to guide you every step of the way.
+
+YOUR JOURNEY STARTS HERE:
+
+1. Browse Packages
+   Explore verified Umrah packages from trusted providers with detailed descriptions and transparent pricing.
+
+2. Compare & Choose
+   Compare different packages, read reviews from other pilgrims, and select what suits you best.
+
+3. Connect with Providers
+   Contact providers directly, ask questions, and customize your package if needed.
+
+4. Book Your Journey
+   Secure your booking with trusted payment methods and start preparing for your spiritual journey.
+
+PLATFORM FEATURES:
+- Easy Search: Find packages by budget, duration, and preferences
+- Verified Providers: All providers are verified for your peace of mind
+- Direct Communication: Chat directly with providers for personalized service
+- Real Reviews: Read authentic reviews from fellow pilgrims
+
+🔗 Browse packages: {{browse_packages_url}}
+🔗 Get help: {{help_url}}
+
+🕋 NEED HELP PLANNING YOUR UMRAH?
+Our support team is here to guide you:
+- Email: support@umrahchalo.com
+- Phone: {{support_phone}}
+- WhatsApp: {{whatsapp_number}}
+- Help Center: {{help_center_url}}
+
+📖 HELPFUL RESOURCES:
+- Complete Umrah Guide: {{umrah_guide_url}}
+- Essential Duas for Umrah: {{duas_url}}
+- Umrah Packing Checklist: {{packing_checklist_url}}
+- Spiritual Preparation Tips: {{preparation_tips_url}}
+
+"And whoever honors the sacred ordinances of Allah - it is best for him in the sight of his Lord." (Quran 22:30)
+
+May Allah accept your Umrah and grant you a spiritually fulfilling journey to His Holy House.
+{{/if_pilgrim}}
 
 ---
+{{#if_provider}}
 Your success is our mission
 UMRAH CHALO - Your trusted Umrah partner
+{{/if_provider}}
+
+{{#if_pilgrim}}
+Your spiritual journey, our commitment
+UMRAH CHALO - Your trusted Umrah companion
+{{/if_pilgrim}}
 
 © 2025 Umrah Chalo. All rights reserved.
 Contact: support@umrahchalo.com
+
+---
+
+📱 Follow us:
+Website: www.umrahchalo.com
+Email: support@umrahchalo.com
+WhatsApp: {{whatsapp_number}}

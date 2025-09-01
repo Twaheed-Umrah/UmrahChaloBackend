@@ -1,0 +1,1 @@
+✅ Great news! Your package "{{ services_name }}" has been approved and is now live. Start receiving leads!

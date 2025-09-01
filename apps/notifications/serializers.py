@@ -88,6 +88,7 @@ class NotificationPreferenceSerializer(serializers.ModelSerializer):
             "email_lead_notifications",
             "email_subscription_notifications",
             "email_package_notifications",
+            "email_services_notifications",
             "email_review_notifications",
             "email_pay_notifications",
             "email_verification_notifications",
@@ -95,6 +96,7 @@ class NotificationPreferenceSerializer(serializers.ModelSerializer):
             # SMS preferences
             "sms_lead_notifications",
             "sms_subscription_notifications",
+            "sms_services_notifications",
             "sms_package_notifications",
             "sms_review_notifications",
             "sms_payment_notifications",
@@ -104,6 +106,7 @@ class NotificationPreferenceSerializer(serializers.ModelSerializer):
             "app_lead_notifications",
             "app_subscription_notifications",
             "app_package_notifications",
+            "app_services_notifications",
             "app_review_notifications",
             "app_payment_notifications",
             "app_verification_notifications",
@@ -116,7 +119,6 @@ class NotificationPreferenceSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
-
 
 class NotificationLogSerializer(serializers.ModelSerializer):
     notification = serializers.PrimaryKeyRelatedField(

@@ -19,7 +19,7 @@ from .serializers import (
 )
 from .filters import PackageFilter, PackageAdminFilter
 from apps.notifications.services import NotificationService 
-
+from apps.authentication.models import ServiceProviderProfile
 class PackageViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing packages with role-based access control
@@ -202,50 +202,11 @@ class PackageViewSet(viewsets.ModelViewSet):
                 if old_status != new_status:
                     if new_status in ['approved', 'verified', 'published']:
                         # Send approval notification
-                        NotificationService.create_notification(
-                            recipient=package.provider.user,
-                            notification_type='package_approved',
-                            title="Package Approved!",
-                            message=f"Your package '{package.name}' has been approved and is now live on Umrah Chalo.",
-                            data={
-                                'package_name': package.name,
-                                'package_id': package.id,
-                                'provider_name': getattr(package.provider, 'business_name', package.provider.user.full_name),
-                                'approval_date': timezone.now().strftime('%Y-%m-%d'),
-                                'package_duration': f"{package.duration_days} days" if hasattr(package, 'duration_days') else 'N/A',
-                                'package_price': f"₹{package.base_price}" if package.base_price else 'Contact for pricing',
-                                'package_url': f"{getattr(settings, 'FRONTEND_URL', '')}/packages/{package.id}/",
-                                'dashboard_url': f"{getattr(settings, 'FRONTEND_URL', '')}/provider/dashboard/",
-                                'verified_by': request.user.full_name or request.user.email,
-                            },
-                            related_object=package,
-                            priority='high'
-                        )
-                        
+                       NotificationService.send_package_approved_notification(package)
                     elif new_status == 'rejected':
                         # Send rejection notification
                         rejection_reason = request.data.get('rejection_reason', 'Please review and improve your package details.')
-                        
-                        NotificationService.create_notification(
-                            recipient=package.provider.user,
-                            notification_type='package_rejected',
-                            title="Package Needs Attention",
-                            message=f"Your package '{package.name}' requires some improvements before it can be approved.",
-                            data={
-                                'package_name': package.name,
-                                'package_id': package.id,
-                                'provider_name': getattr(package.provider, 'business_name', package.provider.user.full_name),
-                                'rejection_reason': rejection_reason,
-                                'rejection_date': timezone.now().strftime('%Y-%m-%d'),
-                                'edit_package_url': f"{getattr(settings, 'FRONTEND_URL', '')}/provider/packages/{package.id}/edit/",
-                                'dashboard_url': f"{getattr(settings, 'FRONTEND_URL', '')}/provider/dashboard/",
-                                'support_url': f"{getattr(settings, 'FRONTEND_URL', '')}/support/",
-                                'resubmit_guidelines_url': f"{getattr(settings, 'FRONTEND_URL', '')}/provider/guidelines/",
-                            },
-                            related_object=package,
-                            priority='high'
-                        )
-                        
+                        NotificationService.send_package_rejected_notification(package, rejection_reason)
             except Exception as notification_error:
                 # Log the error but don't fail the status update
                 logger.error(f"Failed to send package status notification: {notification_error}")
@@ -428,6 +389,7 @@ class PackageViewSet(viewsets.ModelViewSet):
         }
         
         return Response(stats)
+
 class PublicPackageDetailView(APIView):
     """
     Public API to fetch a package by ID
@@ -446,7 +408,7 @@ class PublicPackageDetailView(APIView):
 
         try:
             package = Package.objects.get(id=package_id)  # 👈 no role-based filter
-            serializer = PackageDetailSerializer(package)
+            serializer = PackageDetailSerializer(package, context={'request': request})
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         except Package.DoesNotExist:
@@ -605,7 +567,6 @@ class PackageAdminViewSet(viewsets.ReadOnlyModelViewSet):
     def approve(self, request, pk=None):
         """Approve a package (set status to verified)"""
         package = self.get_object()
-        
         if package.status != 'pending':
             return Response(
                 {'error': 'Package is not pending approval'},
@@ -615,8 +576,8 @@ class PackageAdminViewSet(viewsets.ReadOnlyModelViewSet):
         package.status = 'published'  # Changed from 'published' to 'verified'
         package.verified_by = request.user
         package.verified_at = timezone.now()
+        NotificationService.send_package_approved_notification(package)
         package.save()
-        
         return Response({
             'message': 'Package approved successfully',
             'status': package.status
@@ -626,8 +587,8 @@ class PackageAdminViewSet(viewsets.ReadOnlyModelViewSet):
     def reject(self, request, pk=None):
         """Reject a package"""
         package = self.get_object()
-        rejection_reason = request.data.get('rejection_reason')
-        
+        rejection_reason = request.data.get('notes')
+        provider = ServiceProviderProfile.objects.get(id=package.provider_id)
         if not rejection_reason:
             return Response(
                 {'error': 'Rejection reason is required'},
@@ -639,7 +600,8 @@ class PackageAdminViewSet(viewsets.ReadOnlyModelViewSet):
         package.verified_by = request.user
         package.verified_at = timezone.now()
         package.save()
-        
+        rejection_reason = request.data.get('rejection_reason', 'Please review and improve your package details.')
+        NotificationService.send_package_rejected_notification(package, rejection_reason)
         return Response({
             'message': 'Package rejected successfully',
             'status': package.status,

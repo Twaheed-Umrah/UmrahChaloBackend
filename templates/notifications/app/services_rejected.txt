@@ -1,0 +1,10 @@
+
+Your Service "{{ service_name }}" requires some changes before approval.
+
+Common reasons:
+• Incomplete information
+• Pricing issues
+• Image quality
+• Policy violations
+
+Please review our guidelines and resubmit your Service.

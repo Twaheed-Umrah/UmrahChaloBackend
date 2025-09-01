@@ -1,0 +1,27 @@
+UMRAH CHALO - SERVICE APPROVED
+
+Assalam-o-Alaikum {{provider_name}},
+
+Congratulations! Your Services has been successfully approved.
+
+PACKAGE DETAILS:
+- Service Name: {{package_name}}
+- Submitted On: {{submission_date}}
+- Approval Date: {{approval_date}}
+
+NEXT STEPS:
+- Your package is now live and visible to customers
+- You can start receiving bookings immediately
+- Keep your package information up to date
+- Provide excellent service to maintain high ratings
+
+
+We appreciate your efforts in maintaining our quality standards and ensuring customers receive the best Umrah experience possible.
+
+May Allah accept your efforts in serving His guests.
+
+---
+Quality service for sacred journeys  
+UMRAH CHALO - Your trusted Umrah partner  
+
+Support: support@umrahchalo.com

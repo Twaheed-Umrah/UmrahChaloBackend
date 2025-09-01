@@ -1,0 +1,10 @@
+✅ Service Approved!
+
+Great news! Your Service "{{ service_name }}" has been approved by our team.
+
+Your Service is now:
+• Visible to pilgrims
+• Ready to receive leads
+• Available for bookings
+
+Start promoting your Service to get more visibility!

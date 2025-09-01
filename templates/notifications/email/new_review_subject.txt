@@ -7,7 +7,7 @@ A customer has shared their experience
 You have received a new review for your Umrah package! Building trust through authentic customer feedback.
 
 REVIEW DETAILS:
-- Customer: {{customer_name}}
+- Customer: {{pilgrim_name}}
 - Package: {{package_name}}
 - Travel Date: {{travel_date}}
 - Review Date: {{review_date}}

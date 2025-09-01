@@ -17,7 +17,7 @@ from .serializers import (
 )
 from .tasks import distribute_lead_to_providers
 from .filters import LeadFilter, LeadDistributionFilter
-
+from apps.notifications.services import NotificationService
 
 class LeadViewSet(viewsets.ModelViewSet):
     """
@@ -78,8 +78,9 @@ class LeadViewSet(viewsets.ModelViewSet):
             # The serializer's create method already handles auto-distribution
             lead = serializer.save()
             
-            # Optionally trigger async distribution if you want to use Celery
-            # distribute_lead_to_providers.delay(lead.id)
+            for distribution in lead.distributions.all():
+                provider = distribution.provider.user  # assuming provider has FK to User
+                NotificationService.send_lead_received_notification(lead, provider)
             
             return lead
     

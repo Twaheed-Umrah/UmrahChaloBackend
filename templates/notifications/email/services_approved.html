@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Package Approved - Umrah Chalo</title>
+    <title>Service Approved - Umrah Chalo</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -61,7 +61,7 @@
             border-radius: 4px;
         }
         
-        .package-info {
+        .service-info {
             background: #f8f9fa;
             padding: 20px;
             border-radius: 8px;
@@ -102,33 +102,35 @@
 <body>
     <div class="email-container">
         <div class="header">
-            <h1><span class="umrah-icon">✅</span> Package Approved!</h1>
+            <h1><span class="umrah-icon">✅</span> Service Approved!</h1>
             <div class="brand-name">Umrah Chalo</div>
         </div>
         <div class="content">
-            <h2>Congratulations! Your package is now live</h2>
+            <h2>Congratulations! Your service is now live</h2>
             <p>Assalam-o-Alaikum {{provider_name}},</p>
             
             <div class="success-box">
-                <strong>Great news!</strong> Your Umrah package has been approved and is now visible to customers on Umrah Chalo.
+                <strong>Great news!</strong> Your service has been approved and is now visible to customers on Umrah Chalo.
             </div>
             
-            <div class="package-info">
-                <h3>📦 Package Details:</h3>
+            <div class="service-info">
+                <h3>🛎 Service Details:</h3>
                 <ul>
-                    <li><strong>Package Name:</strong> {{package_name}}</li>
-                    <li><strong>Duration:</strong> {{package_duration}}</li>
-                    <li><strong>Price:</strong> {{package_price}}</li>
+                    <li><strong>Service Name:</strong> {{service_title}}</li>
+                    <li><strong>Duration:</strong> {{service_duration}}</li>
+                    <li><strong>Price:</strong> {{service_price}} {{service_currency}}</li>
                     <li><strong>Approved On:</strong> {{approved_at}}</li>
                 </ul>
             </div>
+
+            <a href="{{service_url}}" class="btn">View Service</a>
             
             <p><strong>What's Next?</strong></p>
             <ul>
-                <li>Your package is now searchable by customers</li>
+                <li>Your service is now searchable by customers</li>
                 <li>You'll start receiving inquiries and bookings</li>
                 <li>Maintain high service quality for better reviews</li>
-                <li>Update package details anytime from your dashboard</li>
+                <li>Update service details anytime from your dashboard</li>
             </ul>
                         
             <p><em>💡 Tip: Respond quickly to inquiries to increase your booking success rate!</em></p>

@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from decouple import config, Csv
+from celery.schedules import crontab
 import dj_database_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -201,6 +202,10 @@ CELERY_BEAT_SCHEDULE = {
     'send-package-upload-reminders': {
         'task': 'apps.notifications.tasks.send_package_upload_reminders',
         'schedule': 60.0 * 60.0 * 24.0,  # Run daily
+    },
+    'send-daily-notifications': {
+        'task': 'apps.notifications.tasks.send_daily_notifications',
+        'schedule': crontab(hour=9, minute=0),  # Run daily at 9 AM
     },
 }
 

@@ -17,6 +17,8 @@ class Notification(models.Model):
         ('subscription_expiry', 'Subscription Expiry'),
         ('package_approved', 'Package Approved'),
         ('package_rejected', 'Package Rejected'),
+        ('services_approved','Service Approved'),
+        ('services_rejected', 'Service Rejected'),
         ('new_review', 'New Review'),
         ('payment_success', 'Payment Success'),
         ('payment_failed', 'Payment Failed'),
@@ -136,6 +138,7 @@ class NotificationPreference(models.Model):
     email_lead_notifications = models.BooleanField(default=True)
     email_subscription_notifications = models.BooleanField(default=True)
     email_package_notifications = models.BooleanField(default=True)
+    email_services_notifications = models.BooleanField(default=True)
     email_review_notifications = models.BooleanField(default=True)
     email_pay_notifications = models.BooleanField(default=True)
     email_verification_notifications = models.BooleanField(default=True)
@@ -145,6 +148,7 @@ class NotificationPreference(models.Model):
     sms_lead_notifications = models.BooleanField(default=True)
     sms_subscription_notifications = models.BooleanField(default=True)
     sms_package_notifications = models.BooleanField(default=False)
+    sms_services_notifications = models.BooleanField(default=False)
     sms_review_notifications = models.BooleanField(default=False)
     sms_payment_notifications = models.BooleanField(default=True)
     sms_verification_notifications = models.BooleanField(default=False)
@@ -154,6 +158,7 @@ class NotificationPreference(models.Model):
     app_lead_notifications = models.BooleanField(default=True)
     app_subscription_notifications = models.BooleanField(default=True)
     app_package_notifications = models.BooleanField(default=True)
+    app_services_notifications = models.BooleanField(default=True)
     app_review_notifications = models.BooleanField(default=True)
     app_payment_notifications = models.BooleanField(default=True)
     app_verification_notifications = models.BooleanField(default=True)
@@ -212,7 +217,17 @@ class NotificationPreference(models.Model):
                 'sms': self.sms_package_notifications,
                 'app': self.app_package_notifications,
             },
-            'package_upload_reminder': {
+            'services_approved': {
+                'email': self.email_services_notifications,
+                'sms': self.sms_services_notifications,
+                'app': self.app_services_notifications,
+            },
+            'services_rejected': {
+                'email': self.email_services_notifications,
+                'sms': self.sms_services_notifications,
+                'app': self.app_services_notifications,
+            },
+            'services_upload_reminder': {
                 'email': self.email_package_notifications,
                 'sms': self.sms_package_notifications,
                 'app': self.app_package_notifications,

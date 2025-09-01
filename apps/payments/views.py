@@ -27,7 +27,7 @@ from .serializers import (
 from apps.subscriptions.models import SubscriptionPlan,Subscription,SubscriptionHistory,SubscriptionFeature,SubscriptionAlert
 from .utils import PaymentGatewayManager
 import logging
-
+from apps.notifications.services import NotificationService
 logger = logging.getLogger(__name__)
 
 class PaymentMethodListView(generics.ListAPIView):
@@ -52,7 +52,6 @@ class PaymentCreateView(generics.CreateAPIView):
             gateway_order = gateway_manager.create_order(payment)
             payment.gateway_order_id = gateway_order.get('id')
             payment.save()
-            
             # Return order details in response
             self.gateway_order = gateway_order
         except Exception as e:
@@ -132,10 +131,23 @@ class PaymentUpdateView(generics.UpdateAPIView):
     def perform_update(self, serializer):
         payment = serializer.save()
         
-        # If payment is completed, activate subscription
+        # If payment is completed, activate subscription and send success notification
         if payment.status == 'completed' and payment.subscription:
             payment.subscription.activate()
             logger.info(f"Subscription {payment.subscription.id} activated for payment {payment.id}")
+            
+            # Send success notification after successful payment and subscription activation
+            try:
+                NotificationService.send_payment_success_notification(payment)
+            except Exception as e:
+                logger.error(f"Failed to send payment success notification: {str(e)}")
+        
+        # If payment failed, send failure notification
+        elif payment.status == 'failed':
+            try:
+                NotificationService.send_payment_failed_notification(payment)
+            except Exception as e:
+                logger.error(f"Failed to send payment failure notification: {str(e)}")
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
@@ -157,7 +169,6 @@ def verify_payment(request, payment_id):
         
         # Initialize gateway manager
         gateway_manager = PaymentGatewayManager(payment.payment_method)
-        
         # Verify payment with gateway
         verification_result = gateway_manager.verify_payment(
             payment_id=request.data.get('razorpay_payment_id'),
@@ -191,8 +202,10 @@ def verify_payment(request, payment_id):
                 # Handle subscription activation/creation
                 subscription_result = handle_subscription_update(payment, request.user)
                 
+                transaction.on_commit(
+                    lambda: NotificationService.send_payment_success_notification(payment)
+                )
                 logger.info(f"Payment {payment.id} verified successfully for user {request.user.email}")
-                
                 return Response({
                     'success': True,
                     'message': 'Payment verified successfully',
@@ -219,6 +232,9 @@ def verify_payment(request, payment_id):
                     description=f'Payment verification failed: {verification_result.get("message", "Unknown error")}'
                 )
                 
+                transaction.on_commit(
+                    lambda: NotificationService.send_payment_failed_notification(payment)
+                )
                 logger.warning(f"Payment {payment.id} verification failed for user {request.user.email}")
                 
                 return Response({
@@ -563,7 +579,10 @@ def process_payment_failed(payment_data):
         payment.status = 'failed'
         payment.failed_at = timezone.now()
         payment.save()
-    
+        try:
+            NotificationService.send_payment_failed_notification(payment)
+        except Exception as e:
+            logger.error(f"Failed to send payment failure notification from webhook: {str(e)}")
     except Payment.DoesNotExist:
         logger.warning(f"Payment not found for gateway ID: {gateway_payment_id}")
 

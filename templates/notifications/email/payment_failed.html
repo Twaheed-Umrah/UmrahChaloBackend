@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,46 +14,46 @@
             margin: 0;
             padding: 20px;
         }
-        
+
         .email-container {
             max-width: 600px;
             margin: 0 auto;
             background: white;
             border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
             overflow: hidden;
         }
-        
+
         .header {
             background: linear-gradient(135deg, #DC3545 0%, #C82333 100%);
             color: white;
             padding: 30px;
             text-align: center;
         }
-        
+
         .header h1 {
             margin: 0;
             font-size: 24px;
             font-weight: 600;
         }
-        
+
         .brand-name {
             font-size: 18px;
             margin-top: 10px;
             opacity: 0.9;
         }
-        
+
         .content {
             padding: 30px;
         }
-        
+
         .content h2 {
             color: #2c3e50;
             margin-top: 0;
             margin-bottom: 20px;
             font-size: 22px;
         }
-        
+
         .error-box {
             background: #f8d7da;
             border-left: 4px solid #DC3545;
@@ -60,7 +61,7 @@
             margin: 20px 0;
             border-radius: 4px;
         }
-        
+
         .payment-info {
             background: #f8f9fa;
             padding: 20px;
@@ -68,7 +69,7 @@
             margin: 20px 0;
             border: 2px solid #e9ecef;
         }
-        
+
         .amount-highlight {
             font-size: 28px;
             font-weight: bold;
@@ -76,7 +77,7 @@
             text-align: center;
             margin: 15px 0;
         }
-        
+
         .solutions-box {
             background: #fff3cd;
             border-left: 4px solid #FFC107;
@@ -84,7 +85,7 @@
             margin: 20px 0;
             border-radius: 4px;
         }
-        
+
         .btn {
             display: inline-block;
             padding: 12px 30px;
@@ -96,16 +97,16 @@
             margin: 15px 0;
             transition: all 0.3s ease;
         }
-        
+
         .btn:hover {
             transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(27, 123, 76, 0.3);
         }
-        
+
         .btn-retry {
             background: linear-gradient(135deg, #DC3545 0%, #C82333 100%);
         }
-        
+
         .footer {
             background: #1B7B4C;
             color: white;
@@ -113,13 +114,14 @@
             text-align: center;
             font-size: 14px;
         }
-        
+
         .umrah-icon {
             font-size: 20px;
             margin-right: 8px;
         }
     </style>
 </head>
+
 <body>
     <div class="email-container">
         <div class="header">
@@ -129,15 +131,16 @@
         <div class="content">
             <h2>We couldn't process your payment</h2>
             <p>Assalam-o-Alaikum {{customer_name}},</p>
-            
+
             <div class="error-box">
-                <strong>Payment Failed:</strong> We encountered an issue while processing your payment. Don't worry, your booking is still reserved for a limited time.
+                <strong>Payment Failed:</strong> We encountered an issue while processing your payment. Don't worry,
+                your booking is still reserved for a limited time.
             </div>
-            
+
             <div class="amount-highlight">
                 {{currency}} {{amount}}
             </div>
-            
+
             <div class="payment-info">
                 <h3>📋 Transaction Details:</h3>
                 <ul>
@@ -148,7 +151,7 @@
                     <li><strong>Error:</strong> {{error_message}}</li>
                 </ul>
             </div>
-            
+
             <div class="solutions-box">
                 <h3>💡 Common Solutions:</h3>
                 <ul>
@@ -159,23 +162,9 @@
                     <li>Contact your bank if the issue persists</li>
                 </ul>
             </div>
-            
-            <p><strong>📦 Your Booking Details:</strong></p>
-            <ul>
-                <li><strong>Package:</strong> {{package_name}}</li>
-                <li><strong>Travel Date:</strong> {{travel_date}}</li>
-                <li><strong>Duration:</strong> {{package_duration}}</li>
-                <li><strong>Travelers:</strong> {{traveler_count}} person(s)</li>
-                <li><strong>Reserved Until:</strong> {{reservation_expires}}</li>
-            </ul>
-            
-            <div style="text-align: center;">
-                <a href="{{retry_payment_url}}" class="btn btn-retry">Retry Payment</a>
-                <a href="{{support_url}}" class="btn" style="margin-left: 10px;">Contact Support</a>
-            </div>
-            
-            <p><em>⏰ Your booking is reserved for {{reservation_hours}} hours. Complete payment to confirm your Umrah journey.</em></p>
-            
+            <p><em>⏰ Your booking is reserved for {{reservation_hours}} hours. Complete payment to confirm your Umrah
+                    journey.</em></p>
+
             <p style="font-style: italic; color: #666; margin-top: 25px;">
                 We're here to help ensure your sacred journey proceeds smoothly. Please don't hesitate to contact us.
             </p>
@@ -185,4 +174,5 @@
         </div>
     </div>
 </body>
+
 </html>
