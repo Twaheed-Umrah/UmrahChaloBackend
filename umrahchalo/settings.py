@@ -13,8 +13,15 @@ SECRET_KEY = 'umrah-chalo-786-services'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
 
-ALLOWED_HOSTS = ['umrachalo.tawheedumrah.com',"umrachalo.com","localhost",
-    "127.0.0.1",]
+ALLOWED_HOSTS = [
+    'umrachalo.tawheedumrah.com',
+    'www.umrachalo.tawheedumrah.com',
+    'umrachalo.com',
+    'localhost',
+    '127.0.0.1',
+    '13.49.76.147',  # IP must be a string
+]
+
 
 # Application definition
 DJANGO_APPS = [
