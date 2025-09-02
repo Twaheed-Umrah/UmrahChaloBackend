@@ -4,13 +4,12 @@ from decouple import config, Csv
 from celery.schedules import crontab
 import dj_database_url
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'umrah-chalo-786-services'
 
-# SECURITY WARNING: don't run with debug turned on in production!
+
 DEBUG = False
 
 ALLOWED_HOSTS = [
@@ -19,11 +18,9 @@ ALLOWED_HOSTS = [
     'umrachalo.com',
     'localhost',
     '127.0.0.1',
-    '13.49.76.147',  # IP must be a string
+    '13.49.76.147',  
 ]
 
-
-# Application definition
 DJANGO_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -109,8 +106,8 @@ DATABASES = {
         'NAME': 'Umrahchalo',
         'USER': 'Umrahchalo',
         'PASSWORD': 'Umrahchalo@54321',
-        'HOST': '103.21.58.193',  # Or use Plesk-provided host
-        'PORT': '1433',            # Plesk SQL port
+        'HOST': '103.21.58.193',  
+        'PORT': '1433',            
         'OPTIONS': {
             'driver': 'ODBC Driver 18 for SQL Server',
             'extra_params': 'TrustServerCertificate=yes;'
