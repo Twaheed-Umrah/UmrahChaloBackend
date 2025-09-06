@@ -194,13 +194,19 @@ SPECTACULAR_SETTINGS = {
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5173",
-    "http://umrachalo.com",]
+     "http://umrachalo.com",
+    "http://www.umrachalo.com",
+    "https://umrachalo.com",
+    "https://www.umrachalo.com",]
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5173",
-    "http://umrachalo.com",
+     "http://umrachalo.com",
+    "http://www.umrachalo.com",
+    "https://umrachalo.com",
+    "https://www.umrachalo.com",
 ]
 
 # Celery Configuration
