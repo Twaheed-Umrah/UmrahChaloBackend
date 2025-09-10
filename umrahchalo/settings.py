@@ -17,8 +17,8 @@ ALLOWED_HOSTS = [
     'www.umrachalo.tawheedumrah.com',
     'umrachalo.com',
     'localhost',
-    '127.0.0.1',
-    '13.49.76.147',  
+    '127.0.0.1', 
+    '13.60.220.255' 
 ]
 
 DJANGO_APPS = [
