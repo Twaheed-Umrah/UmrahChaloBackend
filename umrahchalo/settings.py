@@ -105,8 +105,8 @@ DATABASES = {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': 'umrahchalo',   # DB name on the RDS instance
         'USER': 'admin',
-        'PASSWORD': '0oywGOC1HVpTZXf577mb',
-        'HOST': 'database-1.cj4q24yca0at.eu-north-1.rds.amazonaws.com',
+        'PASSWORD': 'cj4q24yca0at',
+        'HOST': 'umrahchalo-instance-1.cj4q24yca0at.eu-north-1.rds.amazonaws.com',
         'PORT': '3306',
         # Persistent connections (recommended for production)
         'CONN_MAX_AGE': 600,   # seconds; 0 = disable persistent connections
