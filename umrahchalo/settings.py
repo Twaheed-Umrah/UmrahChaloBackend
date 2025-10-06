@@ -103,7 +103,7 @@ WSGI_APPLICATION = 'umrahchalo.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'database-1',   # DB name on the RDS instance
+        'NAME': 'umrahchalo',   # DB name on the RDS instance
         'USER': 'admin',
         'PASSWORD': '0oywGOC1HVpTZXf577mb',
         'HOST': 'database-1.cj4q24yca0at.eu-north-1.rds.amazonaws.com',
