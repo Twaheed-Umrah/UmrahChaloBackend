@@ -105,7 +105,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': 'umrahchalo',   # DB name on the RDS instance
         'USER': 'admin',
-        'PASSWORD': 'cj4q24yca0at',
+        'PASSWORD': 'ppusbKL0RuvUPYnVQoE0',
         'HOST': 'umrahchalo-instance-1.cj4q24yca0at.eu-north-1.rds.amazonaws.com',
         'PORT': '3306',
         # Persistent connections (recommended for production)
