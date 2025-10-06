@@ -102,15 +102,20 @@ WSGI_APPLICATION = 'umrahchalo.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'mssql',
-        'NAME': 'Umrahchalo',
-        'USER': 'Umrahchalo',
-        'PASSWORD': 'Umrahchalo@54321',
-        'HOST': '103.21.58.78',  
-        'PORT': '1433',            
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': 'Umrahchalo',   # DB name on the RDS instance
+        'USER': 'admin',
+        'PASSWORD': '0oywGOC1HVpTZXf577mb',
+        'HOST': 'database-1.cj4q24yca0at.eu-north-1.rds.amazonaws.com',
+        'PORT': '3306',
+        # Persistent connections (recommended for production)
+        'CONN_MAX_AGE': 600,   # seconds; 0 = disable persistent connections
+        'ATOMIC_REQUESTS': True,
         'OPTIONS': {
-            'driver': 'ODBC Driver 18 for SQL Server',
-            'extra_params': 'TrustServerCertificate=yes;'
+            # Ensure strict mode and proper encoding
+            'init_command': "SET sql_mode='STRICT_TRANS_TABLES', NAMES 'utf8mb4', CHARACTER SET 'utf8mb4'",
+            # Optional: If you want to enforce SSL you can add an ssl dict below.
+            # 'ssl': {'ca': '/path/to/rds-combined-ca-bundle.pem'},
         },
     }
 }
