@@ -103,22 +103,19 @@ WSGI_APPLICATION = 'umrahchalo.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'umrahchalo',   # DB name on the RDS instance
+        'NAME': 'umrahochalo',  # Must exist in the MySQL Community instance
         'USER': 'admin',
-        'PASSWORD': 'ppusbKL0RuvUPYnVQoE0',
-        'HOST': 'umrahchalo-instance-1.cj4q24yca0at.eu-north-1.rds.amazonaws.com',
+        'PASSWORD': 'Y3PQtUdRIWGd69L8dAGh',
+        'HOST': 'umrahochalo.cj4q24yca0at.eu-north-1.rds.amazonaws.com',  # Endpoint of your MySQL Community instance
         'PORT': '3306',
-        # Persistent connections (recommended for production)
-        'CONN_MAX_AGE': 600,   # seconds; 0 = disable persistent connections
+        'CONN_MAX_AGE': 600,
         'ATOMIC_REQUESTS': True,
         'OPTIONS': {
-            # Ensure strict mode and proper encoding
             'init_command': "SET sql_mode='STRICT_TRANS_TABLES', NAMES 'utf8mb4', CHARACTER SET 'utf8mb4'",
-            # Optional: If you want to enforce SSL you can add an ssl dict below.
-            # 'ssl': {'ca': '/path/to/rds-combined-ca-bundle.pem'},
         },
     }
 }
+
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {
