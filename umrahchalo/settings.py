@@ -18,7 +18,7 @@ ALLOWED_HOSTS = [
     'umrachalo.com',
     'localhost',
     '127.0.0.1', 
-    '13.60.220.255' 
+    '16.171.149.221' 
 ]
 
 DJANGO_APPS = [
@@ -100,22 +100,27 @@ WSGI_APPLICATION = 'umrahchalo.wsgi.application'
 # Database
 # settings.py
 
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.mysql',
+#         'NAME': 'umrahochalo',  # Must exist in the MySQL Community instance
+#         'USER': 'admin',
+#         'PASSWORD': 'Y3PQtUdRIWGd69L8dAGh',
+#         'HOST': 'umrahochalo.cj4q24yca0at.eu-north-1.rds.amazonaws.com',  # Endpoint of your MySQL Community instance
+#         'PORT': '3306',
+#         'CONN_MAX_AGE': 600,
+#         'ATOMIC_REQUESTS': True,
+#         'OPTIONS': {
+#             'init_command': "SET sql_mode='STRICT_TRANS_TABLES', NAMES 'utf8mb4', CHARACTER SET 'utf8mb4'",
+#         },
+#     }
+# }
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'umrahochalo',  # Must exist in the MySQL Community instance
-        'USER': 'admin',
-        'PASSWORD': 'Y3PQtUdRIWGd69L8dAGh',
-        'HOST': 'umrahochalo.cj4q24yca0at.eu-north-1.rds.amazonaws.com',  # Endpoint of your MySQL Community instance
-        'PORT': '3306',
-        'CONN_MAX_AGE': 600,
-        'ATOMIC_REQUESTS': True,
-        'OPTIONS': {
-            'init_command': "SET sql_mode='STRICT_TRANS_TABLES', NAMES 'utf8mb4', CHARACTER SET 'utf8mb4'",
-        },
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
-
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {
