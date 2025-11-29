@@ -13,8 +13,8 @@ SECRET_KEY = 'umrah-chalo-786-services'
 DEBUG = False
 
 ALLOWED_HOSTS = [
-    'umrachalo.tawheedumrah.com',
-    'www.umrachalo.tawheedumrah.com',
+    'umrahchalo.tawheedumrah.com',
+    'www.umrahchalo.tawheedumrah.com',
     'umrachalo.com',
     'localhost',
     '127.0.0.1', 
