@@ -182,21 +182,20 @@ class ServiceProviderProfile(models.Model):
     """Detailed Service Provider profile for verification and business operations"""
     
     BUSINESS_TYPES = (
-    ('individual', 'Individual'),
-    ('company', 'Company'),
-    ('agency', 'Travel Agency'),
-    ('visa', 'Visa'),
-    ('hotels', 'Hotels'),
-    ('transport', 'Transport'),
-    ('food', 'Food'),
-    ('laundry', 'Laundry'),
-    ('air_ticket_group_fare_umrah', 'Air Ticket Group Fare Umrah'),
-    ('umrah_guide', 'Umrah Guide'),
-    ('umrah_kit', 'Umrah Kit'),
-    ('jam_jam_water', 'Jam Jam Water'),
-    ('hajj_package', 'Hajj Package'),
-    ('umrah_packages', 'Umrah Packages'),
-)
+        ('individual', 'Individual'),
+        ('company', 'Company'),
+        ('agency', 'Travel Agency'),
+        ('visa', 'Visa'),
+        ('hotels', 'Hotels'),
+        ('transport', 'Transport'),
+        ('food', 'Food'),
+        ('laundry', 'Laundry'),
+        ('air_ticket_group_fare_umrah', 'Air Ticket Group Fare Umrah'),
+        ('umrah_guide', 'Umrah Guide'),
+        ('umrah_kit', 'Umrah Kit'),
+        ('jam_jam_water', 'Jam Jam Water'),
+        ('full_package', 'Full Package'),
+    )
     
     VERIFICATION_STATUS = (
         ('pending', 'Pending'),
@@ -222,7 +221,7 @@ class ServiceProviderProfile(models.Model):
     business_pincode = models.CharField(max_length=10)
     
     # Legal Information
-    government_id_type = models.CharField(max_length=50)  # Aadhar, PAN, etc.
+    government_id_type = models.CharField(max_length=50)
     government_id_number = models.CharField(max_length=50)
     government_id_document = models.FileField(upload_to='government_ids/')
     gst_number = models.CharField(max_length=15, blank=True)
@@ -282,14 +281,116 @@ class ServiceProviderProfile(models.Model):
             self.total_reviews = reviews.count()
         
         self.save()
+    
     def has_active_subscription(self):
-           """Check if this service provider's user has an active subscription."""
-           return self.user.subscriptions.filter(
-               status='active',
-               start_date__lte=timezone.now(),
-               end_date__gte=timezone.now()
-                 ).exists()
-
+        """Check if this service provider's user has an active subscription."""
+        return self.user.subscriptions.filter(
+            status='active',
+            start_date__lte=timezone.now(),
+            end_date__gte=timezone.now()
+        ).exists()
+    
+    def get_active_subscription(self):
+        """Get the active subscription object"""
+        return self.user.subscriptions.filter(
+            status='active',
+            start_date__lte=timezone.now(),
+            end_date__gte=timezone.now()
+        ).first()
+    
+    def can_upload_any_service_type(self):
+        """Check if provider can upload any service type (Ultra Premium feature)"""
+        subscription = self.get_active_subscription()
+        if not subscription:
+            return False
+        return subscription.can_upload_any_service_type()
+    
+    def can_upload_any_package(self):
+        """Check if provider can upload any package (Ultra Premium feature)"""
+        subscription = self.get_active_subscription()
+        if not subscription:
+            return False
+        return subscription.can_upload_any_package()
+    
+    def gets_cross_business_leads(self):
+        """Check if provider gets leads from all business types (Ultra Premium feature)"""
+        subscription = self.get_active_subscription()
+        if not subscription:
+            return False
+        return subscription.gets_cross_business_leads()
+    
+    def check_service_upload_permission(self, service_type):
+        """Check if provider can upload specific service type"""
+        # Ultra Premium can upload anything
+        if self.can_upload_any_service_type():
+            return True, None
+        
+        # Map service types to business types
+        service_type_to_business_type = {
+            'visa': 'visa',
+            'hotel': 'hotels',
+            'transport': 'transport',
+            'food': 'food',
+            'laundry': 'laundry',
+            'air_ticket': 'air_ticket_group_fare_umrah',
+            'umrah_guide': 'umrah_guide',
+            'umrah_kit': 'umrah_kit',
+            'jam_jam_water': 'jam_jam_water',
+            'full_package': 'full_package',
+        }
+        
+        allowed_business_type = service_type_to_business_type.get(service_type)
+        
+        if allowed_business_type and allowed_business_type != self.business_type:
+            error_message = f"Your business type ({self.business_type}) can only upload {self.business_type} services. "
+            error_message += f"You are trying to upload {service_type} service. "
+            error_message += "Upgrade to Ultra Premium to upload any type of service."
+            return False, error_message
+        
+        return True, None
+    
+    def check_package_upload_permission(self):
+        """Check if provider can upload packages"""
+        # Ultra Premium can upload anything
+        if self.can_upload_any_package():
+            return True, None
+        
+        # Only specific business types can upload packages
+        allowed_for_packages = ['agency', 'company', 'full_package']
+        
+        if self.business_type not in allowed_for_packages:
+            error_message = f"Your business type ({self.business_type}) cannot upload packages. "
+            error_message += "Only agencies, companies, and full package providers can upload packages. "
+            error_message += "Upgrade to Ultra Premium to upload any type of package."
+            return False, error_message
+        
+        return True, None
+    
+    def check_upload_limits(self, upload_type):
+        """Check if provider has reached upload limits"""
+        subscription = self.get_active_subscription()
+        if not subscription:
+            return False, "No active subscription found"
+        
+        plan = subscription.plan
+        
+        # Ultra Premium has no limits
+        if plan.plan_type == 'ultra_premium':
+            return True, None
+        
+        if upload_type == 'service':
+            current_count = self.services.count()
+            limit = plan.max_services
+            if current_count >= limit:
+                return False, f"You have reached your service limit ({limit}). Upgrade to Ultra Premium for unlimited services."
+        
+        elif upload_type == 'package':
+            current_count = self.packages.count()
+            limit = plan.max_packages
+            if current_count >= limit:
+                return False, f"You have reached your package limit ({limit}). Upgrade to Ultra Premium for unlimited packages."
+        
+        return True, None
 # REMOVED: PilgrimProfile - Basic User model is sufficient for pilgrims
 # Pilgrims only need: email, phone, user_type = 'pilgrim'
 # No additional profile model needed

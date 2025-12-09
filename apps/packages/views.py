@@ -51,9 +51,9 @@ class PackageViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         """Set permissions based on action"""
         if self.action in ['create']:
-            return [IsAuthenticated(), IsServiceProvider(),IsActiveSubscription()]
+            return [IsAuthenticated(), IsServiceProvider(), IsActiveSubscription()]
         elif self.action in ['update', 'partial_update', 'destroy']:
-            return [IsAuthenticated(),IsActiveSubscription()]
+            return [IsAuthenticated(), IsActiveSubscription()]
         elif self.action == 'update_status':
             return [IsAuthenticated(), self.get_admin_permission()]
         else:
@@ -89,6 +89,7 @@ class PackageViewSet(viewsets.ModelViewSet):
         """Filter queryset based on user role"""
         queryset = super().get_queryset()
         user_role = self.get_user_role()
+        
         # Anonymous users - only published and active packages
         if user_role == 'anonymous':
             return queryset.filter(
@@ -97,8 +98,6 @@ class PackageViewSet(viewsets.ModelViewSet):
             )
         
         # PROVIDER role - show packages with any status if they own it
-        # For listing: show published packages + own packages (any status)
-        # For CUD operations: only own packages
         if user_role == 'provider':
             # Check if user has a service_provider profile
             if not hasattr(self.request.user, 'service_provider_profile'):
@@ -146,6 +145,73 @@ class PackageViewSet(viewsets.ModelViewSet):
         
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
+    
+    def check_package_permissions(self, user):
+        """
+        Check if user has permission to create/update packages
+        This validates both subscription and business type restrictions
+        """
+        try:
+            provider_profile = user.service_provider_profile
+        except ServiceProviderProfile.DoesNotExist:
+            raise ValidationError("Only registered service providers can manage packages.")
+        
+        # The IsActiveSubscription permission already checks for active subscription
+        # So we don't need to check it again here
+        
+        # Check package upload permission based on business type
+        has_permission, error_message = provider_profile.check_package_upload_permission()
+        if not has_permission:
+            raise ValidationError(error_message)
+        
+        # Check upload limits
+        has_limit, error_message = provider_profile.check_upload_limits('package')
+        if not has_limit:
+            raise ValidationError(error_message)
+        
+        return provider_profile
+    
+    def perform_create(self, serializer):
+        """
+        Create package with proper provider assignment and validation
+        """
+        user = self.request.user
+        
+        # Check package permissions (includes subscription check via permission class)
+        provider_profile = self.check_package_permissions(user)
+        
+        serializer.save(provider=provider_profile)
+    
+    def perform_update(self, serializer):
+        """
+        Update package with proper validation
+        """
+        user = self.request.user
+        
+        # Check package permissions (includes subscription check via permission class)
+        provider_profile = self.check_package_permissions(user)
+        
+        # Ensure the package belongs to the provider
+        if serializer.instance.provider != provider_profile:
+            raise ValidationError("You can only update your own packages.")
+        
+        serializer.save()
+    
+    def perform_destroy(self, instance):
+        """
+        Delete package with validation
+        """
+        user = self.request.user
+        
+        # Check package permissions (includes subscription check via permission class)
+        provider_profile = self.check_package_permissions(user)
+        
+        # Ensure the package belongs to the provider
+        if instance.provider != provider_profile:
+            raise ValidationError("You can only delete your own packages.")
+        
+        instance.delete()
+    
     @action(detail=False, methods=['get'], url_path='get-package-by-id')
     def get_by_id(self, request):
         """Custom endpoint to get package by ID (using query params and role-based filtering)"""
@@ -200,9 +266,9 @@ class PackageViewSet(viewsets.ModelViewSet):
             # Send notifications based on status change
             try:
                 if old_status != new_status:
-                    if new_status in ['approved', 'verified', 'published']:
+                    if new_status in ['verified', 'published']:
                         # Send approval notification
-                       NotificationService.send_package_approved_notification(package)
+                        NotificationService.send_package_approved_notification(package)
                     elif new_status == 'rejected':
                         # Send rejection notification
                         rejection_reason = request.data.get('rejection_reason', 'Please review and improve your package details.')
@@ -376,6 +442,9 @@ class PackageViewSet(viewsets.ModelViewSet):
         provider_profile = request.user.service_provider_profile
         packages = Package.objects.filter(provider=provider_profile)
         
+        # Get active subscription to show limits
+        subscription = provider_profile.get_active_subscription()
+        
         stats = {
             'total_packages': packages.count(),
             'published_packages': packages.filter(status='published').count(),
@@ -388,7 +457,111 @@ class PackageViewSet(viewsets.ModelViewSet):
             'featured_packages': packages.filter(is_featured=True).count(),
         }
         
+        # Add subscription info if available
+        if subscription:
+            plan = subscription.plan
+            stats['subscription_info'] = {
+                'plan_name': plan.name,
+                'plan_type': plan.plan_type,
+                'package_limit': plan.max_packages,
+                'remaining_packages': max(0, plan.max_packages - packages.count()),
+                'is_ultra_premium': plan.plan_type == 'ultra_premium',
+                'unlimited_uploads': plan.unlimited_uploads,
+            }
+        
         return Response(stats)
+    
+    @action(detail=False, methods=['get'])
+    def my_packages(self, request):
+        """Get current provider's packages"""
+        user_role = self.get_user_role()
+        
+        if user_role != 'provider':
+            return Response(
+                {'error': 'Permission denied. Only service providers can access their packages.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if not hasattr(request.user, 'service_provider_profile'):
+            return Response(
+                {'error': 'Service provider profile not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        provider_profile = request.user.service_provider_profile
+        packages = Package.objects.filter(provider=provider_profile)
+        
+        # Apply filters
+        filtered_packages = PackageFilter(request.GET, queryset=packages).qs
+        
+        # Filter by status if requested
+        status_filter = request.GET.get('status')
+        if status_filter:
+            filtered_packages = filtered_packages.filter(status=status_filter)
+        
+        page = self.paginate_queryset(filtered_packages)
+        serializer = PackageListSerializer(page, many=True, context={'request': request})
+        return self.get_paginated_response(serializer.data)
+    
+    @action(detail=False, methods=['get'], url_path='admin-packages')
+    def admin_packages(self, request):
+        """
+        Get all packages for admin management
+        """
+        user_role = self.get_user_role()
+        
+        if user_role not in ['admin', 'super_admin']:
+            return Response(
+                {'error': 'Permission denied. Only administrators can access this endpoint.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        packages = Package.objects.select_related(
+            'provider', 'provider__user'
+        ).prefetch_related('images')
+        
+        # Apply filters
+        filtered_packages = PackageFilter(request.GET, queryset=packages).qs
+        
+        page = self.paginate_queryset(filtered_packages)
+        serializer = PackageListSerializer(page, many=True, context={'request': request})
+        return self.get_paginate_queryset(filtered_packages)
+        serializer = PackageListSerializer(page, many=True, context={'request': request})
+        return self.get_paginated_response(serializer.data)
+
+
+class PublicPackageDetailView(APIView):
+    """
+    Public API to fetch a package by ID
+    Accessible by anyone (login or not)
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request, *args, **kwargs):
+        package_id = request.query_params.get("id")
+
+        if not package_id:
+            return Response(
+                {"error": "Package ID is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            package = Package.objects.get(id=package_id)
+            serializer = PackageDetailSerializer(package, context={'request': request})
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        except Package.DoesNotExist:
+            return Response(
+                {"error": "Package not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except ValueError:
+            return Response(
+                {"error": "Invalid package ID format"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
 
 class PublicPackageDetailView(APIView):
     """

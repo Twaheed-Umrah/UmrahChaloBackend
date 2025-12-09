@@ -1,6 +1,7 @@
 from rest_framework import permissions
 from apps.core.models import UserRole
-
+from apps.subscriptions.models import Subscription
+from django.utils import timezone
 class IsOwnerOrReadOnly(permissions.BasePermission):
     """
     Custom permission to only allow owners of an object to edit it.
@@ -91,6 +92,7 @@ class IsVerifiedProvider(permissions.BasePermission):
             request.user.is_verified
            
         )
+
 class IsActiveSubscription(permissions.BasePermission):
     """
     Custom permission to check if provider has an active subscription.
@@ -102,10 +104,10 @@ class IsActiveSubscription(permissions.BasePermission):
             self.message = "Authentication credentials were not provided."
             return False
 
+        # Skip subscription check for non-providers
         if request.user.user_type != UserRole.PROVIDER:
             return True  # Allow non-providers without subscription check
-        from apps.subscriptions.models import Subscription
-        from django.utils import timezone
+
         # Check if provider has active subscription
         has_subscription = Subscription.objects.filter(
             user=request.user,
@@ -118,7 +120,8 @@ class IsActiveSubscription(permissions.BasePermission):
             self.message = "Your subscription is not active. Please subscribe to continue."
 
         return has_subscription
-    
+
+
 class CanViewLead(permissions.BasePermission):
     """
     Custom permission to check if user can view lead.

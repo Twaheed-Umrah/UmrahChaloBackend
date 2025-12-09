@@ -35,8 +35,7 @@ class ServiceType(models.TextChoices):
     UMRAH_GUIDE = 'umrah_guide', 'Umrah Guide'
     UMRAH_KIT = 'umrah_kit', 'Umrah Kit'
     JAM_JAM_WATER = 'jam_jam_water', 'Jam Jam Water'
-    HAJJ_PACKAGE = 'hajj_package', 'Hajj Package'
-    UMRAH_PACKAGE = 'umrah_package', 'Umrah Package'
+
 
 class ServiceStatus(models.TextChoices):
     PENDING = 'pending', 'Pending'
