@@ -221,7 +221,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
     filterset_class = ServiceFilter
     search_fields = [
         'title', 'description', 'short_description', 'city', 'state',
-        'provider__company_name', 'provider__user__first_name', 
+        'provider__business_name', 'provider__user__first_name', 
         'provider__user__last_name'
     ]
     ordering_fields = [
@@ -316,9 +316,9 @@ class ServiceViewSet(viewsets.ModelViewSet):
         elif self.action == 'retrieve':
             permission_classes = [AllowAny]
         elif self.action == 'create':
-            permission_classes = [IsAuthenticated,IsActiveSubscription, IsVerifiedProvider, IsServiceProvider]
+            permission_classes = [IsAuthenticated, IsActiveSubscription, IsVerifiedProvider, IsServiceProvider]
         elif self.action in ['partial_update', 'destroy']:
-            permission_classes = [IsAuthenticated]
+            permission_classes = [IsAuthenticated, IsActiveSubscription]
         elif self.action == 'update_status':
             permission_classes = [IsSuperAdmin]
         else:
@@ -326,20 +326,73 @@ class ServiceViewSet(viewsets.ModelViewSet):
         
         return [permission() for permission in permission_classes]
 
+    def check_service_permissions(self, user, data=None):
+        """
+        Check if user has permission to create/update services
+        This validates both subscription and business type restrictions
+        """
+        try:
+            provider_profile = user.service_provider_profile
+        except ServiceProviderProfile.DoesNotExist:
+            raise ValidationError("Only registered service providers can manage services.")
+        
+        # The IsActiveSubscription permission already checks for active subscription
+        # So we don't need to check it again here
+        
+        # Check service type permission
+        service_type = data.get('service_type') if data else None
+        if service_type:
+            has_permission, error_message = provider_profile.check_service_upload_permission(service_type)
+            if not has_permission:
+                raise ValidationError(error_message)
+        
+        # Check upload limits
+        has_limit, error_message = provider_profile.check_upload_limits('service')
+        if not has_limit:
+            raise ValidationError(error_message)
+        
+        return provider_profile
+
     def perform_create(self, serializer):
         """
         Create service with proper provider assignment and validation
         """
-        try:
-            profile = self.request.user.service_provider_profile
-        except ServiceProviderProfile.DoesNotExist:
-            raise ValidationError("Only registered service providers can create services.")
+        user = self.request.user
         
-        # Check if provider has active subscription (if required)
-        if not profile.has_active_subscription():
-            raise ValidationError("Active subscription required to create services.")
+        # Check service permissions (includes subscription check via permission class)
+        provider_profile = self.check_service_permissions(user, self.request.data)
         
-        serializer.save(provider=profile)
+        serializer.save(provider=provider_profile)
+
+    def perform_update(self, serializer):
+        """
+        Update service with proper validation
+        """
+        user = self.request.user
+        
+        # Check service permissions (includes subscription check via permission class)
+        provider_profile = self.check_service_permissions(user, self.request.data)
+        
+        # Ensure the service belongs to the provider
+        if serializer.instance.provider != provider_profile:
+            raise ValidationError("You can only update your own services.")
+        
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        """
+        Delete service with validation
+        """
+        user = self.request.user
+        
+        # Check service permissions (includes subscription check via permission class)
+        provider_profile = self.check_service_permissions(user)
+        
+        # Ensure the service belongs to the provider
+        if instance.provider != provider_profile:
+            raise ValidationError("You can only delete your own services.")
+        
+        instance.delete()
 
     def retrieve(self, request, *args, **kwargs):
         """
@@ -362,7 +415,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
                     service=instance,
                     user=request.user if request.user.is_authenticated else None,
                     ip_address=get_client_ip(request),
-                    user_agent=request.META.get('HTTP_USER_AGENT', '')[:500]  # Truncate long user agents
+                    user_agent=request.META.get('HTTP_USER_AGENT', '')[:500]
                 )
             except Exception as e:
                 # Log error but don't fail the request
@@ -373,38 +426,41 @@ class ServiceViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdminOrSuperAdmin])
     def update_status(self, request, pk=None):
-       """    Update service status with notifications    """
-       try:
-           service = Service.objects.get(pk=pk)
-       except Service.DoesNotExist:
-           return Response({'error': 'Service not found'}, status=status.HTTP_404_NOT_FOUND)
-       # Get the old status before update
-       old_status = service.status
-       # Get the requested new status directly from request
-       requested_status = request.data.get('status')
-
-       serializer = ServiceStatusUpdateSerializer(service, data=request.data, context={'request': request})
-       if serializer.is_valid():
-           try:
-            # First send notifications based on status change
-               if old_status != requested_status:
-                   if requested_status == 'published':
-                       NotificationService.send_service_approved_notification(service)
-                   elif requested_status == 'rejected':
-                       rejection_reason = request.data.get(
-                           'rejection_reason', 
-                           'Please review and improve your service details.'
-                       )
-                       NotificationService.send_service_rejected_notification(service, rejection_reason)
-                   
-           except Exception as notification_error:
-               logger.error(f"Failed to send service status notification: {notification_error}")
+        """    
+        Update service status with notifications    
+        """
+        try:
+            service = Service.objects.get(pk=pk)
+        except Service.DoesNotExist:
+            return Response({'error': 'Service not found'}, status=status.HTTP_404_NOT_FOUND)
         
-        # Now save the new status in DB
-           serializer.save()
-           return Response(serializer.data)
+        # Get the old status before update
+        old_status = service.status
+        # Get the requested new status directly from request
+        requested_status = request.data.get('status')
 
-       return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer = ServiceStatusUpdateSerializer(service, data=request.data, context={'request': request})
+        if serializer.is_valid():
+            try:
+                # First send notifications based on status change
+                if old_status != requested_status:
+                    if requested_status == 'published':
+                        NotificationService.send_service_approved_notification(service)
+                    elif requested_status == 'rejected':
+                        rejection_reason = request.data.get(
+                            'rejection_reason', 
+                            'Please review and improve your service details.'
+                        )
+                        NotificationService.send_service_rejected_notification(service, rejection_reason)
+                        
+            except Exception as notification_error:
+                logger.error(f"Failed to send service status notification: {notification_error}")
+            
+            # Now save the new status in DB
+            serializer.save()
+            return Response(serializer.data)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=False, methods=['get'])
     def my_services(self, request):
@@ -538,7 +594,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
                 Q(description__icontains=search_query) |
                 Q(short_description__icontains=search_query) |
                 Q(city__icontains=search_query) |
-                Q(provider__company_name__icontains=search_query)
+                Q(provider__business_name__icontains=search_query)
             )
 
         # Basic filters
@@ -692,7 +748,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
                 ).filter(published_services_count__gt=0)
                 .order_by('-published_services_count')[:10]
                 .values(
-                    'company_name', 'published_services_count', 
+                    'business_name', 'published_services_count', 
                     'total_views', 'user__first_name', 'user__last_name'
                 )
             )
@@ -712,7 +768,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
                 'top_providers': top_providers,
             }
             
-            cache.set(cache_key, stats, timeout=300)  # Cache for 5 minutes
+            cache.set(cache_key, stats, timeout=300)
 
         # Serialize recent services
         stats['recent_services'] = ServiceListSerializer(
@@ -832,6 +888,58 @@ class ServiceViewSet(viewsets.ModelViewSet):
         serializer_class = serializer_map.get(service_type, ServiceListSerializer)
         serializer = serializer_class(page, many=True, context={'request': request})
         return self.get_paginated_response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def provider_stats(self, request):
+        """
+        Get service statistics for current provider
+        """
+        user_role = self.get_user_role()
+        if user_role != 'provider':
+            return Response(
+                {'error': 'Only service providers can access provider statistics'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        if not hasattr(request.user, 'service_provider_profile'):
+            return Response(
+                {'error': 'Service provider profile not found'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        provider_profile = request.user.service_provider_profile
+        services = Service.objects.filter(provider=provider_profile)
+        
+        # Get active subscription to show limits
+        subscription = provider_profile.get_active_subscription()
+        
+        stats = {
+            'total_services': services.count(),
+            'published_services': services.filter(status=ServiceStatus.PUBLISHED).count(),
+            'pending_services': services.filter(status=ServiceStatus.PENDING).count(),
+            'verified_services': services.filter(status=ServiceStatus.VERIFIED).count(),
+            'rejected_services': services.filter(status=ServiceStatus.REJECTED).count(),
+            'total_views': services.aggregate(total=Sum('views_count'))['total'] or 0,
+            'total_leads': services.aggregate(total=Sum('leads_count'))['total'] or 0,
+            'total_bookings': services.aggregate(total=Sum('bookings_count'))['total'] or 0,
+            'average_rating': services.aggregate(avg=Avg('reviews__rating'))['avg'] or 0,
+            'featured_services': services.filter(is_featured=True).count(),
+        }
+        
+        # Add subscription info if available
+        if subscription:
+            plan = subscription.plan
+            stats['subscription_info'] = {
+                'plan_name': plan.name,
+                'plan_type': plan.plan_type,
+                'service_limit': plan.max_services,
+                'remaining_services': max(0, plan.max_services - services.count()),
+                'is_ultra_premium': plan.plan_type == 'ultra_premium',
+                'unlimited_uploads': plan.unlimited_uploads,
+                'unlimited_business_types': plan.unlimited_business_types,
+            }
+        
+        return Response(stats)
 
 class ServiceAvailabilityViewSet(viewsets.ModelViewSet):
     """

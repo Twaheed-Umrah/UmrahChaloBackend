@@ -292,9 +292,8 @@ class LeadCreateSerializer(serializers.ModelSerializer):
         """
         target_business_types = self.get_target_business_types(lead)
         
-        # Get verified and active service providers with matching business types
+        # Get verified and active service providers
         target_providers = ServiceProviderProfile.objects.filter(
-            business_type__in=target_business_types,
             verification_status='verified',
             is_active=True
         ).exclude(
@@ -302,13 +301,34 @@ class LeadCreateSerializer(serializers.ModelSerializer):
             id__in=LeadDistribution.objects.filter(lead=lead).values_list('provider_id', flat=True)
         ).order_by('-is_featured', '-average_rating', '-total_bookings')
         
-        # Limit to top providers (can be configured)
-        max_providers = 10  # You can make this configurable
-        target_providers = target_providers[:max_providers]
+        # Filter providers based on subscription and business type
+        filtered_providers = []
+        for provider in target_providers:
+            # Check if provider has active subscription
+            if not provider.has_active_subscription():
+                continue
+            
+            # Get active subscription
+            subscription = provider.get_active_subscription()
+            if not subscription:
+                continue
+            
+            # Ultra Premium gets leads from all business types
+            if subscription.plan.plan_type == 'ultra_premium':
+                filtered_providers.append(provider)
+                continue
+            
+            # Regular providers only get leads matching their business type
+            if provider.business_type in target_business_types:
+                filtered_providers.append(provider)
+        
+        # Limit to top providers
+        max_providers = 10
+        filtered_providers = filtered_providers[:max_providers]
         
         # Create lead distributions
         distributions = []
-        for provider in target_providers:
+        for provider in filtered_providers:
             distribution = LeadDistribution.objects.create(
                 lead=lead,
                 provider=provider,
@@ -323,7 +343,6 @@ class LeadCreateSerializer(serializers.ModelSerializer):
             lead.save()
         
         return distributions
-    
     def create(self, validated_data):
         """
         Create a new lead and automatically distribute it

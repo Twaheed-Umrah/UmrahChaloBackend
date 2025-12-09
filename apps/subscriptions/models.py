@@ -1,3 +1,4 @@
+# subscriptions/models.py
 from django.db import models
 from django.contrib.auth import get_user_model
 from django.utils import timezone
@@ -13,6 +14,7 @@ class SubscriptionPlan(models.Model):
         ('free', 'Free'),
         ('basic', 'Basic'),
         ('premium', 'Premium'),
+        ('ultra_premium', 'Ultra Premium'),
     ]
     
     DURATION_CHOICES = [
@@ -29,15 +31,28 @@ class SubscriptionPlan(models.Model):
     
     # Features
     can_upload_packages = models.BooleanField(default=True)
+    can_upload_services = models.BooleanField(default=True)
+    
+    # Premium Features
     priority_listing = models.BooleanField(default=False)
     badge_display = models.BooleanField(default=False)
     lead_notifications = models.BooleanField(default=True)
     analytics_access = models.BooleanField(default=False)
+    
+    # Limits
     max_packages = models.IntegerField(default=10)
+    max_services = models.IntegerField(default=10)
+    
+    # Ultra Premium Features
+    unlimited_business_types = models.BooleanField(default=False)
+    cross_business_leads = models.BooleanField(default=False)
+    unlimited_uploads = models.BooleanField(default=False)
+    featured_in_all_categories = models.BooleanField(default=False)
+    dedicated_support = models.BooleanField(default=False)
     
     # Plan details
     description = models.TextField(blank=True)
-    features = models.JSONField(default=list)  # Store list of features
+    features = models.JSONField(default=list)
     
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -50,6 +65,16 @@ class SubscriptionPlan(models.Model):
     
     def __str__(self):
         return f"{self.name} - {self.duration_months} months"
+    
+    @property
+    def has_unlimited_access(self):
+        """Check if plan has unlimited access to all business types"""
+        return self.plan_type == 'ultra_premium'
+    
+    @property
+    def monthly_price(self):
+        """Calculate monthly price"""
+        return self.price / self.duration_months
 
 
 class Subscription(models.Model):
@@ -122,6 +147,18 @@ class Subscription(models.Model):
         self.status = 'cancelled'
         self.auto_renew = False
         self.save()
+    
+    def can_upload_any_service_type(self):
+        """Check if subscription allows uploading any service type"""
+        return self.plan.plan_type == 'ultra_premium'
+    
+    def can_upload_any_package(self):
+        """Check if subscription allows uploading any package"""
+        return self.plan.plan_type == 'ultra_premium'
+    
+    def gets_cross_business_leads(self):
+        """Check if subscription gets leads from all business types"""
+        return self.plan.plan_type == 'ultra_premium'
 
 
 class SubscriptionHistory(models.Model):
@@ -172,9 +209,9 @@ class SubscriptionFeature(models.Model):
     """Track feature usage for subscriptions"""
     
     subscription = models.ForeignKey(Subscription, on_delete=models.CASCADE, related_name='feature_usage')
-    feature_name = models.CharField(max_length=100)  # e.g., 'packages_uploaded', 'leads_received'
+    feature_name = models.CharField(max_length=100)
     usage_count = models.IntegerField(default=0)
-    limit = models.IntegerField(null=True, blank=True)  # null means unlimited
+    limit = models.IntegerField(null=True, blank=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
