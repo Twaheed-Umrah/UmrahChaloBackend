@@ -53,7 +53,7 @@ class PackageViewSet(viewsets.ModelViewSet):
         if self.action in ['create']:
             return [IsAuthenticated(), IsServiceProvider(), IsActiveSubscription()]
         elif self.action in ['update', 'partial_update', 'destroy']:
-            return [IsAuthenticated(), IsActiveSubscription()]
+            return [IsAuthenticated(),  IsServiceProvider(),IsActiveSubscription()]
         elif self.action == 'update_status':
             return [IsAuthenticated(), self.get_admin_permission()]
         else:
@@ -98,28 +98,16 @@ class PackageViewSet(viewsets.ModelViewSet):
             )
         
         # PROVIDER role - show packages with any status if they own it
+        # PROVIDER role - should ONLY see own packages
         if user_role == 'provider':
-            # Check if user has a service_provider profile
             if not hasattr(self.request.user, 'service_provider_profile'):
-                # If no service provider profile, treat as regular user
-                return queryset.filter(
-                    status='published',
-                    is_active=True
-                )
-            
+                return queryset.none()
+
             provider_profile = self.request.user.service_provider_profile
-            if self.action in ['list', 'retrieve']:
-                # Show published packages + own packages (any status)
-                return queryset.filter(
-                    Q(status='published', is_active=True) |
-                    Q(provider=provider_profile)
-                )
-            else:
-                # For CUD operations, only own packages
-                return queryset.filter(
-                    provider=provider_profile
-                )
-        
+
+            # Providers only see their own packages ALWAYS
+            return queryset.filter(provider=provider_profile)
+
         # PILGRIM role - only verified and published packages
         if user_role == 'pilgrim':
             return queryset.filter(
