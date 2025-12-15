@@ -184,14 +184,16 @@ class OTPVerificationView(APIView):
         email = serializer.validated_data.get("email")
         phone = serializer.validated_data.get("phone")
         otp = serializer.validated_data["otp"]
-        purpose = serializer.validated_data["purpose"]
+        purpose = serializer.validated_data["purpose"].strip().lower()
 
         try:
             user = User.objects.get(email=email) if email else User.objects.get(phone=phone)
         except User.DoesNotExist:
             return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        otp_obj = OTPVerification.objects.filter(user=user, otp=otp, purpose=purpose, is_used=False).last()
+        otp_obj = OTPVerification.objects.filter(
+            user=user, otp=otp, purpose__iexact=purpose, is_used=False
+        ).last()
 
         if not otp_obj or otp_obj.is_expired():
             return Response({"error": "Invalid or expired OTP"}, status=status.HTTP_400_BAD_REQUEST)
@@ -203,21 +205,29 @@ class OTPVerificationView(APIView):
         refresh = RefreshToken.for_user(user)
         access_token = str(refresh.access_token)
 
+        # Handle IP safely
+        ip_address = request.META.get('HTTP_X_FORWARDED_FOR')
+        if ip_address:
+            ip_address = ip_address.split(',')[0].strip()
+        else:
+            ip_address = request.META.get('REMOTE_ADDR', '0.0.0.0')
+
         # Create Session
         UserSession.objects.create(
             user=user,
             session_key=str(uuid.uuid4()),
             device_info=request.META.get('HTTP_USER_AGENT', ''),
-            ip_address=request.META.get('REMOTE_ADDR', '')
+            ip_address=ip_address
         )
 
         return Response({
             "message": "OTP verified successfully",
             "access_token": access_token,
             "refresh_token": str(refresh),
-            'user': UserProfileSerializer(user).data
+            "user": UserProfileSerializer(user).data
         }, status=status.HTTP_200_OK)
-    
+
+
 class PasswordResetView(APIView):
     """
     API endpoint to request password reset
