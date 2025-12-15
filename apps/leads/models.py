@@ -39,7 +39,7 @@ class Lead(models.Model):
     budget_range = models.CharField(max_length=50, null=True, blank=True)
     departure_city = models.CharField(max_length=100, null=True, blank=True)
     special_requirements = models.TextField(null=True, blank=True)
-    selected_services = models.JSONField(default=dict)
+    selected_services = models.JSONField(default=dict, blank=True)  # <-- optional now
     is_distributed = models.BooleanField(default=False)
     distribution_date = models.DateTimeField(null=True, blank=True)
     expires_at = models.DateTimeField(null=True, blank=True)
@@ -58,6 +58,7 @@ class Lead(models.Model):
         return f"Lead by {self.full_name} - {self.lead_type}"
 
     def save(self, *args, **kwargs):
+        # Default expiry
         if not self.expires_at:
             self.expires_at = timezone.now() + timezone.timedelta(days=30)
 
@@ -70,11 +71,20 @@ class Lead(models.Model):
             else:
                 self.lead_type = 'custom'
 
-        # Only set service provider if user is a provider
+        # Auto-fill selected_services for package leads
+        if self.lead_type == 'package' and not self.selected_services and self.package:
+            self.selected_services = {"package_id": self.package.id, "package_name": self.package.name}
+
+        # Auto-fill selected_services for service leads
+        if self.lead_type == 'service' and not self.selected_services and self.service:
+            self.selected_services = {"service_id": self.service.id, "service_name": self.service.title}
+
+        # Auto-set service_provider if user has one
         if self.user_id and not self.service_provider:
             if hasattr(self.user, 'service_provider_profile'):
                 self.service_provider = self.user.service_provider_profile
 
+        # Validate and save
         self.full_clean()
         super().save(*args, **kwargs)
 

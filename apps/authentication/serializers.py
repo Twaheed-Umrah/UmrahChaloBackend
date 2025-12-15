@@ -231,9 +231,9 @@ class OTPLoginSerializer(serializers.Serializer):
 
 
 class OTPVerificationSerializer(serializers.Serializer):
-    email = serializers.EmailField(required=False)
-    phone = serializers.CharField(required=False)
-    otp = serializers.CharField(max_length=6)
+    email = serializers.EmailField(required=False, allow_blank=True)
+    phone = serializers.CharField(required=False, allow_blank=True)
+    otp = serializers.CharField(max_length=6, required=True)
     purpose = serializers.CharField()
 
     def validate(self, data):

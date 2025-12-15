@@ -177,6 +177,15 @@ class LeadSerializer(serializers.ModelSerializer):
             return lead
 
 
+from django.utils import timezone
+from django.db import transaction
+from rest_framework import serializers
+from .models import Lead, LeadDistribution, ServiceProviderProfile
+
+import logging
+logger = logging.getLogger(__name__)
+
+
 class LeadCreateSerializer(serializers.ModelSerializer):
     """
     Serializer for creating leads (minimal fields) with auto-distribution
@@ -186,61 +195,58 @@ class LeadCreateSerializer(serializers.ModelSerializer):
         fields = [
             'package', 'service', 'lead_type', 'full_name', 'email', 'phone',
             'preferred_date', 'number_of_people', 'budget_range', 'departure_city',
-             'special_requirements',
-            'selected_services', 'source', 'priority'
+            'special_requirements', 'selected_services', 'source', 'priority'
         ]
-    
+
     def validate(self, data):
         """
         Custom validation for Lead creation
         """
-        # Either package or service must be provided for non-custom leads
-        if data.get('lead_type') != 'custom':
-            if not data.get('package') and not data.get('service'):
+        # Validate lead_type presence
+        lead_type = data.get('lead_type')
+        package = data.get('package')
+        service = data.get('service')
+
+        if lead_type != 'custom':
+            if not package and not service:
                 raise serializers.ValidationError(
-                    "Either package or service must be provided for non-custom leads"
+                    "Either package or service must be provided for non-custom leads."
                 )
-            
-            # Both package and service cannot be provided
-            if data.get('package') and data.get('service'):
+            if package and service:
                 raise serializers.ValidationError(
-                    "Both package and service cannot be provided"
+                    "Both package and service cannot be provided simultaneously."
                 )
-        
+
         # Validate preferred date
-        if data.get('preferred_date') and data['preferred_date'] < timezone.now().date():
+        preferred_date = data.get('preferred_date')
+        if preferred_date and preferred_date < timezone.now().date():
             raise serializers.ValidationError(
-                "Preferred date cannot be in the future"
+                "Preferred date cannot be in the past."
             )
-        
+
         return data
-    
+
     def get_target_business_types(self, lead):
         """
         Determine target business types based on lead type and content
         """
         target_types = []
-        
+
         if lead.lead_type == 'package':
             if lead.package:
-                # Get business type from package provider
                 target_types = [lead.package.provider.business_type]
             else:
-                # Default package-related business types
                 target_types = ['umrah_packages', 'hajj_package', 'agency']
-        
+
         elif lead.lead_type == 'service':
             if lead.service:
-                # Get business type from service provider
                 target_types = [lead.service.provider.business_type]
             else:
-                # Default service-related business types
                 target_types = ['agency', 'individual', 'company']
-        
+
         elif lead.lead_type == 'custom':
-            # For custom leads, determine based on selected services or requirements
             custom_types = []
-            
+
             # Check selected services
             if lead.selected_services:
                 service_keywords = str(lead.selected_services).lower()
@@ -262,8 +268,8 @@ class LeadCreateSerializer(serializers.ModelSerializer):
                     custom_types.append('air_ticket_group_fare_umrah')
                 if 'water' in service_keywords or 'zam' in service_keywords:
                     custom_types.append('jam_jam_water')
-            
-            # Check special requirements and custom message
+
+            # Check special requirements
             requirements_text = f"{lead.special_requirements or ''}".lower()
             if 'visa' in requirements_text:
                 custom_types.append('visa')
@@ -277,56 +283,42 @@ class LeadCreateSerializer(serializers.ModelSerializer):
                 custom_types.append('hajj_package')
             if 'food' in requirements_text or 'meal' in requirements_text:
                 custom_types.append('food')
-            
+
             target_types = list(set(custom_types)) if custom_types else ['agency', 'company']
-        
-        # Always include 'agency' as they can handle most requests
+
+        # Always include 'agency'
         if 'agency' not in target_types:
             target_types.append('agency')
-        
+
         return target_types
-    
+
     def distribute_lead(self, lead):
         """
-        Automatically distribute lead to relevant service providers based on business_type
+        Automatically distribute lead to relevant service providers
         """
         target_business_types = self.get_target_business_types(lead)
-        
-        # Get verified and active service providers
+
+        # Fetch providers using ORM-level filtering for performance
         target_providers = ServiceProviderProfile.objects.filter(
             verification_status='verified',
             is_active=True
         ).exclude(
-            # Exclude providers who already received this lead
             id__in=LeadDistribution.objects.filter(lead=lead).values_list('provider_id', flat=True)
         ).order_by('-is_featured', '-average_rating', '-total_bookings')
-        
-        # Filter providers based on subscription and business type
+
         filtered_providers = []
         for provider in target_providers:
-            # Check if provider has active subscription
-            if not provider.has_active_subscription():
-                continue
-            
-            # Get active subscription
             subscription = provider.get_active_subscription()
             if not subscription:
                 continue
-            
-            # Ultra Premium gets leads from all business types
-            if subscription.plan.plan_type == 'ultra_premium':
+
+            if subscription.plan.plan_type == 'ultra_premium' or provider.business_type in target_business_types:
                 filtered_providers.append(provider)
-                continue
-            
-            # Regular providers only get leads matching their business type
-            if provider.business_type in target_business_types:
-                filtered_providers.append(provider)
-        
-        # Limit to top providers
+
+        # Limit providers
         max_providers = 10
         filtered_providers = filtered_providers[:max_providers]
-        
-        # Create lead distributions
+
         distributions = []
         for provider in filtered_providers:
             distribution = LeadDistribution.objects.create(
@@ -335,26 +327,42 @@ class LeadCreateSerializer(serializers.ModelSerializer):
                 status='sent'
             )
             distributions.append(distribution)
-        
+
         # Update lead status
         if distributions:
             lead.is_distributed = True
             lead.distribution_date = timezone.now()
             lead.save()
-        
+
+        logger.info(f"Lead {lead.id} distributed to {len(distributions)} providers")
         return distributions
+
     def create(self, validated_data):
         """
-        Create a new lead and automatically distribute it
+        Create lead and auto-distribute
         """
+        validated_data['user'] = self.context['request'].user
+
+        # Auto-fill selected_services
+        if validated_data.get('lead_type') == 'package' and not validated_data.get('selected_services') and validated_data.get('package'):
+            validated_data['selected_services'] = {
+                "package_id": validated_data['package'].id,
+                "package_name": validated_data['package'].name
+            }
+
+        if validated_data.get('lead_type') == 'service' and not validated_data.get('selected_services') and validated_data.get('service'):
+            validated_data['selected_services'] = {
+                "service_id": validated_data['service'].id,
+                "service_name": validated_data['service'].title
+            }
+
+        # Use transaction to ensure lead creation + distribution atomicity
         with transaction.atomic():
-            validated_data['user'] = self.context['request'].user
             lead = super().create(validated_data)
-            
-            # Auto-distribute the lead
             self.distribute_lead(lead)
-            
-            return lead
+
+        logger.info(f"Lead {lead.id} created successfully")
+        return lead
 
 
 class LeadDistributionSerializer(serializers.ModelSerializer):
