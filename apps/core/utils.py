@@ -234,7 +234,8 @@ def send_otp(email: str, otp: str, purpose: str) -> bool:
             'site_name': 'Umrah Chalo'
         }
         
-        return send_email_notification(email, subject, template.replace('email/', ''), context)
+        # ✅ Pass template as is, do NOT modify
+        return send_email_notification(email, subject, template, context)
         
     except Exception as e:
         logger.error(f"Failed to send OTP to {email}: {str(e)}")
@@ -250,7 +251,8 @@ def send_email_notification(
 ) -> bool:
     """Send email notification using template"""
     try:
-        html_content = render_to_string(f'email/{template_name}.html', context)
+        # ✅ Use template_name directly, do not add .html
+        html_content = render_to_string(template_name, context)
         text_content = strip_tags(html_content)
         
         msg = EmailMultiAlternatives(
@@ -267,7 +269,6 @@ def send_email_notification(
     except Exception as e:
         logger.error(f"Email sending failed: {e}")
         return False
-
 
 def send_welcome_email(user) -> bool:
     """Send welcome email to new user"""
