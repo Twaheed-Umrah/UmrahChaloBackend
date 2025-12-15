@@ -28,8 +28,9 @@ urlpatterns = [
     
     # Password
     path('password/', include([
-        path('reset/', views.PasswordResetView.as_view(), name='password-reset'),
-        path('reset/confirm/', views.PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
+        path('reset/', views.PasswordResetView.as_view(), name='password-reset-request'),
+        path('verify-otp/', views.PasswordResetVerifyOTPView.as_view(), name='password-verify-otp'),
+        path('set-new/', views.PasswordSetNewView.as_view(), name='password-set-new'),
         path('change/', views.ChangePasswordView.as_view(), name='password-change'),
     ])),
     
