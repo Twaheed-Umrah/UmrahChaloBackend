@@ -229,10 +229,12 @@ def send_otp(email: str, otp: str, purpose: str) -> bool:
         
         context = {
             'otp': otp,
-            'purpose': purpose,
-            'expires_in': 10 if purpose == 'password_reset' else 5,
-            'site_name': 'Umrah Chalo'
-        }
+             'purpose': purpose,
+             'expires_in': 10 if purpose == 'password_reset' else 5,
+              'site_name': 'Umrah Chalo',
+             'user_email': email,
+              'expiry_datetime': (timezone.now() + timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M'),
+           }
         
         # ✅ Pass template as is, do NOT modify
         return send_email_notification(email, subject, template, context)
