@@ -241,18 +241,65 @@ class OTPVerificationSerializer(serializers.Serializer):
             raise serializers.ValidationError("Email or Phone is required.")
         return data
 
+# serializers.py - Add these new serializers
+
 class PasswordResetSerializer(serializers.Serializer):
     """
-    Serializer for password reset request
+    Step 1: Request password reset OTP
     """
     email = serializers.EmailField()
     
     def validate_email(self, value):
+        return value
+
+
+class PasswordResetVerifyOTPSerializer(serializers.Serializer):
+    """
+    Step 2: Verify password reset OTP
+    """
+    email = serializers.EmailField()
+    otp = serializers.CharField(max_length=6)
+    
+    def validate(self, attrs):
+        email = attrs.get('email')
+        otp = attrs.get('otp')
+        
         try:
-            user = User.objects.get(email=value)
+            user = User.objects.get(email=email)
         except User.DoesNotExist:
             raise serializers.ValidationError("User with this email does not exist.")
-        return value
+        
+        # Check if there's a valid OTP
+        otp_obj = OTPVerification.objects.filter(
+            user=user,
+            otp=otp,
+            purpose='password_reset',
+            is_used=False
+        ).last()
+        
+        if not otp_obj:
+            raise serializers.ValidationError("Invalid OTP.")
+        
+        if otp_obj.is_expired():
+            raise serializers.ValidationError("OTP has expired.")
+        
+        attrs['user'] = user
+        attrs['otp_obj'] = otp_obj
+        return attrs
+
+
+class PasswordSetNewSerializer(serializers.Serializer):
+    """
+    Step 3: Set new password
+    """
+    reset_token = serializers.CharField()
+    new_password = serializers.CharField(validators=[validate_password])
+    confirm_password = serializers.CharField()
+    
+    def validate(self, attrs):
+        if attrs['new_password'] != attrs['confirm_password']:
+            raise serializers.ValidationError("Passwords do not match.")
+        return attrs
 
 
 class PasswordResetConfirmSerializer(serializers.Serializer):

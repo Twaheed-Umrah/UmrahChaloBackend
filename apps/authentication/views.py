@@ -25,7 +25,8 @@ from .serializers import (
     ServiceProviderProfileSerializer, ServiceProviderRegistrationSerializer,
     ServiceProviderListSerializer, UserActivitySerializer, SavedPackageSerializer,
     LoginAttemptSerializer, UserSessionSerializer, EmailVerificationSerializer,
-    PhoneVerificationSerializer, UserManagementSerializer, BulkUserActionSerializer,LocationUpdateSerializer
+    PhoneVerificationSerializer, UserManagementSerializer, BulkUserActionSerializer,LocationUpdateSerializer,PasswordSetNewSerializer,
+    PasswordResetVerifyOTPSerializer
 )
 import logging
 logger = logging.getLogger(__name__)
@@ -227,10 +228,11 @@ class OTPVerificationView(APIView):
             "user": UserProfileSerializer(user).data
         }, status=status.HTTP_200_OK)
 
+# views.py - Replace PasswordResetView, PasswordResetConfirmView with these
 
 class PasswordResetView(APIView):
     """
-    API endpoint to request password reset
+    Step 1: Request password reset OTP
     """
     permission_classes = [AllowAny]
     
@@ -239,18 +241,49 @@ class PasswordResetView(APIView):
         serializer.is_valid(raise_exception=True)
         
         email = serializer.validated_data['email']
-        user = User.objects.get(email=email)
         
-        # Generate and send OTP
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            # Security best practice: Don't reveal if user exists
+            logger.warning(f"Password reset requested for non-existent email: {email}")
+            return Response({
+                'message': 'If this email exists in our system, you will receive a password reset OTP.'
+            }, status=status.HTTP_200_OK)
+        
+        # Check rate limiting (prevent abuse)
+        recent_attempts = OTPVerification.objects.filter(
+            user=user,
+            purpose='password_reset',
+            created_at__gte=timezone.now() - timedelta(minutes=5)
+        ).count()
+        
+        if recent_attempts >= 3:
+            return Response({
+                'error': 'Too many reset attempts. Please try again later.'
+            }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        
+        # Generate OTP
         otp = generate_otp()
-        OTPVerification.objects.create(
+        expires_at = timezone.now() + timedelta(minutes=10)
+        
+        # Create OTP record
+        otp_obj = OTPVerification.objects.create(
             user=user,
             otp=otp,
             purpose='password_reset',
-            expires_at=timezone.now() + timedelta(minutes=10)
+            expires_at=expires_at
         )
         
-        send_otp(email, otp, 'password_reset')
+        # Send OTP
+        try:
+            send_otp(email, otp, 'password_reset')
+            logger.info(f"Password reset OTP sent to {email}")
+        except Exception as e:
+            logger.error(f"Failed to send OTP to {email}: {str(e)}")
+            return Response({
+                'error': 'Failed to send OTP. Please try again.'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         # Log activity
         UserActivity.objects.create(
@@ -261,42 +294,154 @@ class PasswordResetView(APIView):
         )
         
         return Response({
-            'message': 'Password reset OTP sent to your email.'
+            'message': 'Password reset OTP sent to your email.',
+            'otp_id': str(otp_obj.id),  # For debugging/verification
+            'expires_in': '10 minutes'
         }, status=status.HTTP_200_OK)
 
 
-class PasswordResetConfirmView(APIView):
+class PasswordResetVerifyOTPView(APIView):
     """
-    API endpoint to confirm password reset
+    Step 2: Verify password reset OTP and return reset token
     """
     permission_classes = [AllowAny]
     
     def post(self, request):
-        serializer = PasswordResetConfirmSerializer(data=request.data)
+        serializer = PasswordResetVerifyOTPSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
         user = serializer.validated_data['user']
-        otp_verification = serializer.validated_data['otp_verification']
+        otp_obj = serializer.validated_data['otp_obj']
+        
+        # Generate reset token
+        try:
+            from rest_framework_simplejwt.tokens import RefreshToken
+            
+            refresh = RefreshToken.for_user(user)
+            # Add custom claims
+            refresh['purpose'] = 'password_reset'
+            refresh['otp_id'] = otp_obj.id
+            
+            # Short expiry for reset tokens (15 minutes)
+            reset_token = refresh.access_token
+            reset_token.set_exp(lifetime=timedelta(minutes=15))
+            
+            reset_token_str = str(reset_token)
+            
+        except Exception as e:
+            logger.error(f"Failed to generate reset token: {str(e)}")
+            return Response({
+                'error': 'Failed to process request. Please try again.'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        # Mark OTP as used (cannot be used again)
+        otp_obj.is_used = True
+        otp_obj.save()
+        
+        # Log activity
+        UserActivity.objects.create(
+            user=user,
+            activity_type='password_reset_otp_verified',
+            description='Password reset OTP verified',
+            ip_address=get_client_ip(request)
+        )
+        
+        return Response({
+            'message': 'OTP verified successfully',
+            'reset_token': reset_token_str,
+            'expires_in': '15 minutes',
+            'next_step': 'Use this reset_token to set new password'
+        }, status=status.HTTP_200_OK)
+
+
+class PasswordSetNewView(APIView):
+    """
+    Step 3: Set new password using JWT reset token
+    """
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        serializer = PasswordSetNewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        reset_token = serializer.validated_data['reset_token']
         new_password = serializer.validated_data['new_password']
         
-        # Mark OTP as used
-        otp_verification.is_used = True
-        otp_verification.save()
+        try:
+            # Verify the JWT token
+            from rest_framework_simplejwt.tokens import AccessToken
+            from rest_framework_simplejwt.exceptions import TokenError
+            
+            decoded_token = AccessToken(reset_token)
+            
+            # Validate token purpose
+            if decoded_token.get('purpose') != 'password_reset':
+                raise TokenError('Invalid token purpose')
+            
+            user_id = decoded_token['user_id']
+            otp_id = decoded_token.get('otp_id')
+            
+            user = User.objects.get(id=user_id)
+            
+            # Verify OTP was used for this reset
+            if otp_id:
+                try:
+                    otp_obj = OTPVerification.objects.get(
+                        id=otp_id,
+                        user=user,
+                        purpose='password_reset',
+                        is_used=True
+                    )
+                except OTPVerification.DoesNotExist:
+                    raise TokenError('Invalid reset session')
+            
+        except (TokenError, User.DoesNotExist) as e:
+            logger.warning(f"Invalid reset token: {str(e)}")
+            return Response({
+                'error': 'Invalid or expired reset token. Please request a new password reset.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if token is blacklisted (optional)
+        from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
+        if hasattr(BlacklistedToken, 'objects'):
+            try:
+                if BlacklistedToken.objects.filter(token__jti=decoded_token['jti']).exists():
+                    raise TokenError('Token is blacklisted')
+            except:
+                pass
         
         # Update password
         user.set_password(new_password)
         user.save()
         
+        # Blacklist the reset token (prevent reuse)
+        try:
+            from rest_framework_simplejwt.tokens import RefreshToken
+            RefreshToken(reset_token).blacklist()
+        except:
+            pass  # If blacklist app not installed, continue
+        
+        # Invalidate all user sessions (security measure)
+        UserSession.objects.filter(user=user, is_active=True).update(is_active=False)
+        
         # Log activity
         UserActivity.objects.create(
             user=user,
-            activity_type='password_reset',
-            description='Password reset successfully',
+            activity_type='password_reset_complete',
+            description='Password reset completed',
             ip_address=get_client_ip(request)
         )
         
+        # Send confirmation email (optional)
+        try:
+            # You can add a confirmation email here
+            logger.info(f"Password reset completed for user: {user.email}")
+        except Exception as e:
+            logger.error(f"Failed to send confirmation email: {str(e)}")
+        
         return Response({
-            'message': 'Password reset successfully'
+            'message': 'Password has been reset successfully',
+            'next_step': 'You can now login with your new password'
         }, status=status.HTTP_200_OK)
 
 

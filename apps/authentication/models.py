@@ -4,6 +4,8 @@ from django.utils import timezone
 from django.core.validators import RegexValidator
 from django.conf import settings
 from apps.core.models import BaseModel, UserRole
+from datetime import timedelta
+
 class User(AbstractUser):
     """
     Custom User model extending AbstractUser
@@ -137,6 +139,22 @@ class OTPVerification(models.Model):
     def is_valid(self):
         return not self.is_used and not self.is_expired()
 
+    def generate_reset_token(self):
+        """
+        Generate a JWT token for password reset
+        """
+        from rest_framework_simplejwt.tokens import RefreshToken
+        
+        refresh = RefreshToken.for_user(self.user)
+        # Add custom claims to identify this as a password reset token
+        refresh['purpose'] = 'password_reset'
+        refresh['otp_id'] = self.id
+        
+        # Set shorter expiry for reset tokens (15 minutes)
+        reset_token = refresh.access_token
+        reset_token.set_exp(lifetime=timedelta(minutes=15))
+
+        return str(reset_token)
 
 class LoginAttempt(models.Model):
     """
