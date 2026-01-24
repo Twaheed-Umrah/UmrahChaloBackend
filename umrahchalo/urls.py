@@ -13,6 +13,7 @@ api_patterns = [
     path('notify/', include('apps.notifications.urls')),
     path('payments/', include('apps.payments.urls')),
     path('reviews/', include('apps.reviews.urls')),
+    path('banner/', include('apps.banners.urls')),
 ]
 
 urlpatterns = [
