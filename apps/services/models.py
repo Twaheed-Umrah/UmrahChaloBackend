@@ -5,6 +5,7 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
 from apps.core.models import BaseModel, UserRole
 from apps.authentication.models import ServiceProviderProfile
+from apps.core.defaults import SERVICE_DEFAULTS
 
 User = get_user_model()
 
@@ -69,12 +70,12 @@ class Service(BaseModel):
     service_type = models.CharField(max_length=20, choices=ServiceType.choices)
     category = models.ForeignKey(ServiceCategory, on_delete=models.CASCADE, related_name='services')
     
-    title = models.CharField(max_length=200)
-    description = models.TextField()
+    title = models.CharField(max_length=200, blank=True)
+    description = models.TextField(blank=True)
     short_description = models.CharField(max_length=500, blank=True)
     
     # Pricing
-    price = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0)])
+    price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0)])
     original_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     price_currency = models.CharField(max_length=3, default='INR')
     price_per = models.CharField(max_length=50, default='person')  # person, group, day, etc.
@@ -173,6 +174,13 @@ class Service(BaseModel):
         verbose_name="Flight Class"
     )
     
+    flight_direct_via = models.CharField(
+        max_length=10,
+        choices=[('direct', 'Direct'), ('via', 'Via')],
+        blank=True,
+        verbose_name="Flight Type"
+    )
+    
     # Zamzam Water specific fields
     water_capacity = models.CharField(
         max_length=50,
@@ -225,10 +233,8 @@ class Service(BaseModel):
         max_length=50,
         choices=[
             ('bus', 'Bus'),
-            ('car', 'Car'),
-            ('taxi', 'Taxi'),
-            ('van', 'Van'),
-            ('coach', 'Coach'),
+            ('cab', 'Cab'),
+            ('other', 'Other'),
         ],
         blank=True,
         verbose_name="Transport Type"
@@ -286,34 +292,80 @@ class Service(BaseModel):
         
         # Air Ticket validation
         if self.service_type == ServiceType.AIR_TICKET:
-            if not self.flight_from:
-                errors['flight_from'] = 'Flight From is required for Air Ticket services'
-            if not self.flight_to:
-                errors['flight_to'] = 'Flight To is required for Air Ticket services'
-            if not self.departure_date:
-                errors['departure_date'] = 'Departure date is required for Air Ticket services'
+            # For Air Ticket, we only require multiple dates (handled via ServiceAvailability)
+            # or some specific fields if they are provided. 
+            # We don't strictly require flight_from/to here if we follow "minimum details"
+            pass
         
         # Zamzam Water validation
-        if self.service_type == ServiceType.JAM_JAM_WATER:
-            if not self.water_capacity:
-                errors['water_capacity'] = 'Water capacity is required for Zamzam Water services'
+        elif self.service_type == ServiceType.JAM_JAM_WATER:
+            # Water capacity is optional for lead generation focus
+            pass
         
         # Hotel validation
         if self.service_type == ServiceType.HOTEL:
-            if not self.hotel_room_type:
-                errors['hotel_room_type'] = 'Room type is required for Hotel services'
+            # Room type is optional for lead generation focus
+            pass
         
         # Transport validation
         if self.service_type == ServiceType.TRANSPORT:
-            if not self.transport_type:
-                errors['transport_type'] = 'Transport type is required for Transport services'
-            if not self.pickup_location:
-                errors['pickup_location'] = 'Pickup location is required for Transport services'
+            # Transport type is one of the 3-4 fields, so keep it if you want, 
+            # but making it optional preserves the lead flow.
+            pass
         
         if errors:
             raise ValidationError(errors)
     
     def save(self, *args, **kwargs):
+        # Auto-populate location from provider
+        if self.provider:
+            if not self.city:
+                self.city = self.provider.business_city
+            if not self.state:
+                self.state = self.provider.business_state
+            if not self.country:
+                self.country = self.provider.business_country
+
+        # Auto-generate title if missing
+        if not self.title:
+            s_type = dict(ServiceType.choices).get(self.service_type, self.service_type).capitalize()
+            p_name = self.provider.business_name if self.provider else "Provider"
+            self.title = f"{s_type} service by {p_name}"
+
+        # Auto-populate metadata from defaults if missing
+        defaults = SERVICE_DEFAULTS.get(self.service_type, {})
+        
+        if not self.short_description:
+            self.short_description = defaults.get('short_description', '')
+        
+        if not self.description:
+            self.description = defaults.get('description', '')
+            
+        if not self.features and defaults.get('features'):
+            self.features = defaults.get('features', [])
+            
+        if not self.inclusions and defaults.get('inclusions'):
+            self.inclusions = defaults.get('inclusions', [])
+            
+        if not self.exclusions and defaults.get('exclusions'):
+            self.exclusions = defaults.get('exclusions', [])
+
+        # Default values for Jam Jam Water
+        if self.service_type == ServiceType.JAM_JAM_WATER:
+            if not self.water_capacity:
+                self.water_capacity = "5L"
+            if not self.packaging_type:
+                self.packaging_type = 'bottle'
+            if not self.water_source:
+                self.water_source = "Kudai"
+
+        # Default values for Transport
+        if self.service_type == ServiceType.TRANSPORT:
+            if not self.vehicle_capacity:
+                self.vehicle_capacity = 4  # Standard sedan capacity
+            if not self.transport_type:
+                self.transport_type = 'bus'
+
         if not self.slug:
             from django.utils.text import slugify
             base_slug = slugify(self.title)
