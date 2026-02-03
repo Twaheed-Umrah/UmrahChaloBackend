@@ -147,7 +147,7 @@ class PackageListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Package
         fields = [
-            'id', 'name', 'slug', 'description', 'package_type',
+            'id', 'name', 'slug', 'short_description', 'description', 'features', 'package_type',
             'provider', 'base_price', 'discounted_price', 'final_price',
             'duration_days', 'start_date', 'end_date', 'booking_deadline',
             'max_capacity', 'current_bookings', 'availability_percentage',
@@ -188,7 +188,7 @@ class PackageDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Package
         fields = [
-            'id', 'name', 'slug', 'description', 'package_type',
+            'id', 'name', 'slug', 'short_description', 'description', 'features', 'package_type',
             'provider', 'base_price', 'discounted_price', 'final_price',
             'duration_days', 'start_date', 'end_date', 'booking_deadline',
             'max_capacity', 'current_bookings', 'availability_percentage',
@@ -222,14 +222,21 @@ class PackageCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Package
         fields = [
-            'id', 'name', 'description', 'package_type', 'base_price',
-            'discounted_price', 'duration_days', 'start_date', 'end_date',
-            'city', 'state', 'country',
+            'id', 'name', 'short_description', 'description', 'features', 'package_type', 'package_category', 
+            'base_price', 'discounted_price', 'duration_days', 'start_date', 
+            'end_date', 'city', 'state', 'country',
             'booking_deadline', 'max_capacity', 'featured_image',
             'is_active', 'services', 'inclusions', 'exclusions',
             'itineraries', 'policies', 'availabilities'
         ]
-        read_only_fields = ['id']
+        read_only_fields = ['id', 'city', 'state', 'country']
+        extra_kwargs = {
+            'name': {'required': False},
+            'description': {'required': False},
+            'start_date': {'required': False},
+            'end_date': {'required': False},
+            'booking_deadline': {'required': False},
+        }
     
     def validate(self, data):
         """Validate package data"""

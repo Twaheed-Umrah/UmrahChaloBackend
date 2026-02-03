@@ -14,7 +14,6 @@ import re
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
-    full_name = serializers.SerializerMethodField()
     user_type_display = serializers.CharField(source='get_user_type_display', read_only=True)
     location_info = serializers.SerializerMethodField()
 
@@ -27,9 +26,6 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'user_type', 'is_verified', 'location_updated_at', 'created_at', 'updated_at']
-
-    def get_full_name(self, obj):
-        return obj.full_name or f"{obj.first_name} {obj.last_name}".strip() or obj.username
 
     def get_location_info(self, obj):
         return obj.get_location_info()

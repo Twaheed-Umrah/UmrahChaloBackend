@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.utils import timezone
+from django.db import transaction
 from .models import (
     ServiceCategory, ServiceImage, Service, ServiceAvailability, 
     ServiceFAQ, ServiceView, ServiceType, ServiceStatus
@@ -132,6 +133,7 @@ class ServiceListSerializer(serializers.ModelSerializer):
     discount_percentage = serializers.ReadOnlyField()
     is_available_today = serializers.SerializerMethodField()
     service_specific_fields = serializers.SerializerMethodField()
+    availabilities = ServiceAvailabilitySerializer(many=True, read_only=True)
     
     class Meta:
         model = Service
@@ -141,7 +143,7 @@ class ServiceListSerializer(serializers.ModelSerializer):
             'duration', 'city', 'state', 'country', 'featured_image_url', 'provider', 
             'provider_company', 'average_rating', 'total_reviews', 'views_count',
             'is_featured', 'is_popular', 'is_premium', 'status', 'slug',
-            'is_available_today', 'service_specific_fields', 'created_at', 'updated_at'
+            'is_available_today', 'service_specific_fields', 'availabilities', 'created_at', 'updated_at'
         ]
         read_only_fields = ['created_at', 'updated_at']
     
@@ -233,6 +235,12 @@ class ServiceCreateUpdateSerializer(serializers.ModelSerializer):
         required=False
     )
     
+    availability_dates = serializers.ListField(
+        child=serializers.DateField(),
+        required=False,
+        write_only=True
+    )
+    
     class Meta:
         model = Service
         fields = [
@@ -248,6 +256,7 @@ class ServiceCreateUpdateSerializer(serializers.ModelSerializer):
             # Air Ticket specific fields
             'departure_date', 'return_date', 'departure_city', 'arrival_city',
             'airline', 'seat_availability', 'flight_from', 'flight_to', 'flight_class',
+            'flight_direct_via',
             
             # Zamzam Water specific fields
             'water_capacity', 'water_capacity_liters', 'water_source', 'packaging_type',
@@ -256,8 +265,17 @@ class ServiceCreateUpdateSerializer(serializers.ModelSerializer):
             'hotel_star_rating', 'hotel_room_type', 
             
             # Transport specific fields
-            'transport_type', 'vehicle_capacity', 'pickup_location', 'drop_location'
+            'transport_type', 'vehicle_capacity', 'pickup_location', 'drop_location',
+            
+            # Multi-date field
+            'availability_dates'
         ]
+        read_only_fields = ['city', 'state', 'country']
+        extra_kwargs = {
+            'title': {'required': False},
+            'description': {'required': False},
+            'category': {'required': False},
+        }
     
     def validate(self, data):
         """
@@ -267,22 +285,8 @@ class ServiceCreateUpdateSerializer(serializers.ModelSerializer):
         
         # Air Ticket validation
         if service_type == ServiceType.AIR_TICKET:
-            required_fields = {
-                'flight_from': 'Flight origin is required for Air Ticket services',
-                'flight_to': 'Flight destination is required for Air Ticket services',
-                'departure_date': 'Departure date is required for Air Ticket services'
-            }
-            
-            for field, error_msg in required_fields.items():
-                if not data.get(field):
-                    raise serializers.ValidationError({field: error_msg})
-            
-            # Validate dates
-            if data.get('departure_date') and data.get('return_date'):
-                if data['departure_date'] >= data['return_date']:
-                    raise serializers.ValidationError({
-                        'return_date': "Return date must be after departure date"
-                    })
+            # We don't strictly require anything for Air Ticket besides what provider chooses
+            pass
         
         # Zamzam Water validation
         elif service_type == ServiceType.JAM_JAM_WATER:
@@ -339,15 +343,52 @@ class ServiceCreateUpdateSerializer(serializers.ModelSerializer):
     
     def create(self, validated_data):
         """
-        Create service with current user as provider
+        Create service with current user as provider and handle multiple dates
         """
         user = self.context['request'].user
+        availability_dates = validated_data.pop('availability_dates', [])
+
         try:
             validated_data['provider'] = user.service_provider_profile
         except ServiceProviderProfile.DoesNotExist:
             raise serializers.ValidationError("Only providers can create services.")
 
-        return super().create(validated_data)
+        # Ensure a category exists if not provided
+        if not validated_data.get('category'):
+            from .models import ServiceCategory
+            service_type_name = dict(ServiceType.choices).get(validated_data['service_type'], validated_data['service_type'])
+            category, _ = ServiceCategory.objects.get_or_create(name=service_type_name)
+            validated_data['category'] = category
+
+        with transaction.atomic():
+            service = super().create(validated_data)
+            
+            # Create availability entries for multiple dates
+            for date in availability_dates:
+                ServiceAvailability.objects.update_or_create(
+                    service=service,
+                    date=date,
+                    defaults={'is_available': True}
+                )
+            
+            return service
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        availability_dates = validated_data.pop('availability_dates', None)
+        service = super().update(instance, validated_data)
+
+        if availability_dates is not None:
+            # For simplicity, we just add new ones if they don't exist
+            # or update existing ones. We don't delete to avoid breaking bookings.
+            for date in availability_dates:
+                ServiceAvailability.objects.update_or_create(
+                    service=service,
+                    date=date,
+                    defaults={'is_available': True}
+                )
+        
+        return service
 
 class ServiceStatusUpdateSerializer(serializers.ModelSerializer):
     """

@@ -11,6 +11,7 @@ import uuid
 from apps.core.models import BaseModel
 from apps.services.models import Service, ServiceImage
 from apps.authentication.models import ServiceProviderProfile
+from apps.core.defaults import PACKAGE_DEFAULTS
 
 User = get_user_model()
 
@@ -20,6 +21,15 @@ class Package(models.Model):
         ('hajj', 'Hajj'),
         ('umrah', 'Umrah'),
         ('both', 'Hajj & Umrah'),
+        ('zyarat', 'Zyarat'),
+        ('ramzan', 'Ramzan'),
+    ]
+
+    PACKAGE_CATEGORY_CHOICES = [
+        ('deluxe', 'Deluxe'),
+        ('semi-deluxe', 'Semi-Deluxe'),
+        ('economy', 'Economy'),
+        ('budget', 'Budget'),
     ]
 
     STATUS_CHOICES = [
@@ -30,9 +40,12 @@ class Package(models.Model):
         ('expired', 'Expired'),
     ]
 
-    name = models.CharField(max_length=200)
-    description = models.TextField()
+    name = models.CharField(max_length=200, blank=True)
+    short_description = models.CharField(max_length=500, blank=True)
+    description = models.TextField(blank=True)
+    features = models.JSONField(default=list, blank=True)
     package_type = models.CharField(max_length=10, choices=PACKAGE_TYPES)
+    package_category = models.CharField(max_length=20, choices=PACKAGE_CATEGORY_CHOICES, default='economy')
 
     provider = models.ForeignKey(
         ServiceProviderProfile,
@@ -45,9 +58,9 @@ class Package(models.Model):
     base_price = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0)])
     discounted_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0)])
     duration_days = models.PositiveIntegerField()
-    start_date = models.DateField()
-    end_date = models.DateField()
-    booking_deadline = models.DateField()
+    start_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
+    booking_deadline = models.DateField(null=True, blank=True)
     max_capacity = models.PositiveIntegerField(default=50)
     current_bookings = models.PositiveIntegerField(default=0)
 
@@ -96,14 +109,79 @@ class Package(models.Model):
             return self.name
 
     def save(self, *args, **kwargs):
+        is_new = self._state.adding
+        
+        # Auto-populate location from provider
+        if self.provider:
+            if not self.city:
+                self.city = self.provider.business_city
+            if not self.state:
+                self.state = self.provider.business_state
+            if not self.country:
+                self.country = self.provider.business_country
+
+        # Auto-generate name if missing
+        if not self.name:
+            p_type = dict(self.PACKAGE_TYPES).get(self.package_type, self.package_type).capitalize()
+            p_cat = dict(self.PACKAGE_CATEGORY_CHOICES).get(self.package_category, self.package_category).capitalize()
+            self.name = f"{p_type} {p_cat} - {self.duration_days} Days"
+
+        # Auto-populate metadata from defaults if missing
+        defaults = PACKAGE_DEFAULTS.get(self.package_type, {})
+        if not self.short_description:
+            self.short_description = defaults.get('short_description', '')
+            
+        if not self.description:
+            self.description = defaults.get('description', '')
+
+        if not self.features or len(self.features) == 0:
+            self.features = defaults.get('features', [])
+
         if not self.slug:
             self.slug = f"{slugify(self.name)}-{uuid.uuid4().hex[:8]}"
+            
         super().save(*args, **kwargs)
+
+        # Handle related objects for new packages or if they don't exist
+        if is_new or not self.inclusions.exists():
+            for inclusion_title in defaults.get('inclusions', []):
+                PackageInclusion.objects.get_or_create(
+                    package=self,
+                    title=inclusion_title,
+                    defaults={'description': '', 'order': 0}
+                )
+        
+        if is_new or not self.exclusions.exists():
+            for exclusion_title in defaults.get('exclusions', []):
+                PackageExclusion.objects.get_or_create(
+                    package=self,
+                    title=exclusion_title,
+                    defaults={'description': '', 'order': 0}
+                )
+
+        if is_new or not self.itineraries.exists():
+            for item in defaults.get('itinerary', []):
+                # Only add itinerary day if it doesn't exceed duration_days
+                if item['day'] <= self.duration_days:
+                    PackageItinerary.objects.get_or_create(
+                        package=self,
+                        day_number=item['day'],
+                        defaults={
+                            'title': item['title'],
+                            'description': item['description'],
+                            'location': 'Makkah' if item['day'] <= 6 else 'Madinah'
+                        }
+                    )
 
     @property
     def is_available(self):
         now = timezone.now().date()
-        return self.status == 'published' and self.is_active and self.booking_deadline >= now and self.current_bookings < self.max_capacity
+        # If no booking_deadline is set, consider it available (lead generation focus)
+        deadline_ok = True
+        if self.booking_deadline:
+            deadline_ok = self.booking_deadline >= now
+            
+        return self.status == 'published' and self.is_active and deadline_ok and self.current_bookings < self.max_capacity
 
     @property
     def availability_percentage(self):
