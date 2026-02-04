@@ -290,10 +290,9 @@ class ServiceCreateUpdateSerializer(serializers.ModelSerializer):
         
         # Zamzam Water validation
         elif service_type == ServiceType.JAM_JAM_WATER:
+            # Set default water capacity if not provided
             if not data.get('water_capacity'):
-                raise serializers.ValidationError({
-                    'water_capacity': 'Water capacity is required for Zamzam Water services'
-                })
+                data['water_capacity'] = '5L'
         
         # Hotel validation
         elif service_type == ServiceType.HOTEL:
@@ -311,14 +310,13 @@ class ServiceCreateUpdateSerializer(serializers.ModelSerializer):
         
         # Transport validation
         elif service_type == ServiceType.TRANSPORT:
-            required_fields = {
-                'transport_type': 'Transport type is required for Transport services',
-                'pickup_location': 'Pickup location is required for Transport services'
-            }
+            # Set default transport type if not provided
+            if not data.get('transport_type'):
+                data['transport_type'] = 'cab'
             
-            for field, error_msg in required_fields.items():
-                if not data.get(field):
-                    raise serializers.ValidationError({field: error_msg})
+            # Set default pickup location if not provided
+            if not data.get('pickup_location'):
+                data['pickup_location'] = 'To be confirmed'
             
             # Validate vehicle capacity
             if data.get('vehicle_capacity') and data['vehicle_capacity'] <= 0:
