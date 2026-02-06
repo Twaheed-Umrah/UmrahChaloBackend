@@ -366,25 +366,37 @@ class RefreshTokenSerializer(serializers.Serializer):
 
 # Service Provider Serializers
 class ServiceProviderRegistrationSerializer(serializers.ModelSerializer):
+    full_name = serializers.CharField(write_only=True)
     email = serializers.EmailField(write_only=True)
-    phone = serializers.CharField(write_only=True, required=False)
+    phone = serializers.CharField(write_only=True, required=True)
     password = serializers.CharField(write_only=True, validators=[validate_password])
     confirm_password = serializers.CharField(write_only=True)
-    latitude = serializers.DecimalField(max_digits=10, decimal_places=8, required=False, allow_null=True)
-    longitude = serializers.DecimalField(max_digits=11, decimal_places=8, required=False, allow_null=True)
-    location_address = serializers.CharField(max_length=500, required=False, allow_blank=True)
 
     class Meta:
         model = ServiceProviderProfile
         fields = [
-            'email', 'phone', 'password', 'confirm_password',
+            'full_name', 'email', 'phone', 'password', 'confirm_password',
             'business_name', 'business_type', 'business_description',
             'business_logo', 'business_email', 'business_phone', 'business_address',
             'business_city', 'business_state', 'business_country', 'business_pincode',
             'government_id_type', 'government_id_number', 'government_id_document',
             'gst_number', 'gst_certificate', 'trade_license_number',
-            'trade_license_document', 'latitude', 'longitude', 'location_address'
+            'trade_license_document'
         ]
+        extra_kwargs = {
+            'business_name': {'required': False},
+            'business_type': {'required': False},
+            'business_email': {'required': False},
+            'business_phone': {'required': False},
+            'business_address': {'required': False},
+            'business_city': {'required': False},
+            'business_state': {'required': False},
+            'business_country': {'required': False},
+            'business_pincode': {'required': False},
+            'government_id_type': {'required': False},
+            'government_id_number': {'required': False},
+            'government_id_document': {'required': False},
+        }
 
     def validate_email(self, value):
         if User.objects.filter(email=value).exists():
@@ -396,54 +408,22 @@ class ServiceProviderRegistrationSerializer(serializers.ModelSerializer):
             phone_regex = re.compile(r'^\+?1?\d{9,15}$')
             if not phone_regex.match(value):
                 raise serializers.ValidationError("Invalid phone number format.")
-        return value
-
-    def validate_business_email(self, value):
-        if ServiceProviderProfile.objects.filter(business_email=value).exists():
-            raise serializers.ValidationError("A service provider with this business email already exists.")
-        return value
-
-    def validate_latitude(self, value):
-        if value is not None:
-            if not (-90 <= float(value) <= 90):
-                raise serializers.ValidationError("Latitude must be between -90 and 90 degrees.")
-        return value
-
-    def validate_longitude(self, value):
-        if value is not None:
-            if not (-180 <= float(value) <= 180):
-                raise serializers.ValidationError("Longitude must be between -180 and 180 degrees.")
+            if User.objects.filter(phone=value).exists():
+                raise serializers.ValidationError("A user with this phone number already exists.")
         return value
 
     def validate(self, attrs):
         if attrs['password'] != attrs['confirm_password']:
             raise serializers.ValidationError("Passwords do not match.")
-        
-        # Validate latitude and longitude together
-        latitude = attrs.get('latitude')
-        longitude = attrs.get('longitude')
-        
-        if (latitude is not None and longitude is None) or (latitude is None and longitude is not None):
-            raise serializers.ValidationError("Both latitude and longitude must be provided together or not at all.")
-        
         return attrs
 
-    def validate_gst_number(self, value):
-        if value and len(value) != 15:
-            raise serializers.ValidationError("GST number must be 15 characters long")
-        return value
-
     def create(self, validated_data):
+        full_name = validated_data.pop('full_name')
         email = validated_data.pop('email')
         phone = validated_data.pop('phone', None)
         password = validated_data.pop('password')
         validated_data.pop('confirm_password', None)
         
-        # Extract location data for user
-        latitude = validated_data.pop('latitude', None)
-        longitude = validated_data.pop('longitude', None)
-        location_address = validated_data.pop('location_address', None)
-
         # Generate a unique username from email
         username = email.split('@')[0]
         if User.objects.filter(username=username).exists():
@@ -454,17 +434,10 @@ class ServiceProviderRegistrationSerializer(serializers.ModelSerializer):
             email=email,
             phone=phone,
             password=password,
+            full_name=full_name,
             user_type='provider'
         )
         
-        # Set location for provider (typically set once during registration)
-        if latitude is not None and longitude is not None:
-            user.latitude = latitude
-            user.longitude = longitude
-            user.location_address = location_address
-            user.location_updated_at = timezone.now()
-            user.save()
-
         # Send OTP
         otp = generate_otp()
         OTPVerification.objects.create(
@@ -475,7 +448,7 @@ class ServiceProviderRegistrationSerializer(serializers.ModelSerializer):
         )
         send_otp(user.email, otp, 'email_verification')
 
-        # Create profile
+        # Create profile with whatever remaining data (might be empty business info)
         return ServiceProviderProfile.objects.create(user=user, **validated_data)
 
 class ServiceProviderProfileSerializer(serializers.ModelSerializer):
