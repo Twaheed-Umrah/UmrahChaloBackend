@@ -19,6 +19,9 @@ class SubscriptionPlanSerializer(serializers.ModelSerializer):
             'id', 'name', 'plan_type', 'duration_months', 'price',
             'can_upload_packages', 'priority_listing', 'badge_display',
             'lead_notifications', 'analytics_access', 'max_packages',
+            'unlimited_business_types', 'cross_business_leads', 
+            'unlimited_uploads', 'featured_in_all_categories', 
+            'dedicated_support',
             'description', 'features', 'is_active', 'created_at'
         ]
         read_only_fields = ['id', 'created_at']

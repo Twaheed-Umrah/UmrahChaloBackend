@@ -224,24 +224,24 @@ class ServiceProviderProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='service_provider_profile')
     
     # Business Information
-    business_name = models.CharField(max_length=255)
-    business_type = models.CharField(max_length=50, choices=BUSINESS_TYPES)
+    business_name = models.CharField(max_length=255, null=True, blank=True)
+    business_type = models.CharField(max_length=50, choices=BUSINESS_TYPES, null=True, blank=True)
     business_description = models.TextField(blank=True)
     business_logo = models.ImageField(upload_to='business_logos/', null=True, blank=True)
     
     # Contact Information
-    business_email = models.EmailField()
-    business_phone = models.CharField(max_length=17)
-    business_address = models.TextField()
-    business_city = models.CharField(max_length=100)
-    business_state = models.CharField(max_length=100)
-    business_country = models.CharField(max_length=100)
-    business_pincode = models.CharField(max_length=10)
+    business_email = models.EmailField(null=True, blank=True)
+    business_phone = models.CharField(max_length=17, null=True, blank=True)
+    business_address = models.TextField(null=True, blank=True)
+    business_city = models.CharField(max_length=100, null=True, blank=True)
+    business_state = models.CharField(max_length=100, null=True, blank=True)
+    business_country = models.CharField(max_length=100, null=True, blank=True)
+    business_pincode = models.CharField(max_length=10, null=True, blank=True)
     
     # Legal Information
-    government_id_type = models.CharField(max_length=50)
-    government_id_number = models.CharField(max_length=50)
-    government_id_document = models.FileField(upload_to='government_ids/')
+    government_id_type = models.CharField(max_length=50, null=True, blank=True)
+    government_id_number = models.CharField(max_length=50, null=True, blank=True)
+    government_id_document = models.FileField(upload_to='government_ids/', null=True, blank=True)
     gst_number = models.CharField(max_length=15, blank=True)
     gst_certificate = models.FileField(upload_to='gst_certificates/', null=True, blank=True)
     
@@ -343,6 +343,11 @@ class ServiceProviderProfile(models.Model):
         if self.can_upload_any_service_type():
             return True, None
         
+        # Check if provider has an active "normal" subscription (Basic/Premium/Ultra)
+        subscription = self.get_active_subscription()
+        if not subscription:
+            return False, "You need an active subscription to upload services."
+
         # Map service types to business types
         service_type_to_business_type = {
             'visa': 'visa',
@@ -359,11 +364,16 @@ class ServiceProviderProfile(models.Model):
         
         allowed_business_type = service_type_to_business_type.get(service_type)
         
-        if allowed_business_type and allowed_business_type != self.business_type:
-            error_message = f"Your business type ({self.business_type}) can only upload {self.business_type} services. "
-            error_message += f"You are trying to upload {service_type} service. "
-            error_message += "Upgrade to Ultra Premium to upload any type of service."
-            return False, error_message
+        # Normal subscriptions can upload their own business type OR full_package
+        if allowed_business_type:
+            is_own_business = allowed_business_type == self.business_type
+            is_full_package = service_type == 'full_package'
+            
+            if not (is_own_business or is_full_package):
+                error_message = f"Your business type ({self.business_type}) can only upload {self.business_type} and full_package services. "
+                error_message += f"You are trying to upload {service_type} service. "
+                error_message += "Upgrade to Ultra Premium to upload any type of service."
+                return False, error_message
         
         return True, None
     
@@ -373,13 +383,19 @@ class ServiceProviderProfile(models.Model):
         if self.can_upload_any_package():
             return True, None
         
-        # Only specific business types can upload packages
+        # Check if provider has an active subscription (Basic/Premium/Ultra)
+        subscription = self.get_active_subscription()
+        if subscription:
+            return True, None
+        
+        # If no subscription, only specific business types can upload packages
+        # (Though in reality, they likely need a subscription to upload anything)
         allowed_for_packages = ['agency', 'company', 'full_package']
         
         if self.business_type not in allowed_for_packages:
-            error_message = f"Your business type ({self.business_type}) cannot upload packages. "
-            error_message += "Only agencies, companies, and full package providers can upload packages. "
-            error_message += "Upgrade to Ultra Premium to upload any type of package."
+            error_message = f"Your business type ({self.business_type}) cannot upload packages without a subscription. "
+            error_message += "Only agencies, companies, and full package providers can upload packages by default. "
+            error_message += "Get a subscription to upload packages and more."
             return False, error_message
         
         return True, None
