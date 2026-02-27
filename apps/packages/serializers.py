@@ -4,7 +4,8 @@ from apps.services.serializers import ServiceListSerializer
 from apps.authentication.serializers import ServiceProviderProfileSerializer
 from .models import (
     Package, PackageService, PackageInclusion, PackageExclusion,
-    PackageItinerary, PackageImage, PackagePolicy, PackageAvailability
+    PackageItinerary, PackageImage, PackagePolicy, PackageAvailability,
+    ProviderPackageImage
 )
 import base64
 import uuid
@@ -63,6 +64,16 @@ class PackageImageSerializer(serializers.ModelSerializer):
     class Meta:
         model = PackageImage
         fields = ['id', 'image', 'caption', 'is_featured', 'order']
+        read_only_fields = ['id']
+
+
+class ProviderPackageImageSerializer(serializers.ModelSerializer):
+    """Serializer for provider-uploaded package images"""
+    image = Base64ImageField(required=False)
+    
+    class Meta:
+        model = ProviderPackageImage
+        fields = ['id', 'image', 'caption', 'order']
         read_only_fields = ['id']
 
 
@@ -144,6 +155,10 @@ class PackageListSerializer(serializers.ModelSerializer):
         if obj.featured_image and obj.featured_image.image:
             return request.build_absolute_uri(obj.featured_image.image.url) if request else obj.featured_image.image.url
         return None
+
+    video = serializers.FileField(read_only=True)
+    provider_images = ProviderPackageImageSerializer(many=True, read_only=True)
+
     class Meta:
         model = Package
         fields = [
@@ -156,6 +171,7 @@ class PackageListSerializer(serializers.ModelSerializer):
             'reviews_count', 'views_count', 'leads_count', 'is_featured',
             'is_active', 'package_services', 'inclusions', 'exclusions',
             'itineraries', 'images', 'policies', 'availabilities',
+            'provider_images', 'video',
             'created_at', 'updated_at'
         ]
         read_only_fields = [
@@ -184,6 +200,9 @@ class PackageDetailSerializer(serializers.ModelSerializer):
         if obj.featured_image and obj.featured_image.image:
             return request.build_absolute_uri(obj.featured_image.image.url) if request else obj.featured_image.image.url
         return None
+
+    video = serializers.FileField(read_only=True)
+    provider_images = ProviderPackageImageSerializer(many=True, read_only=True)
     
     class Meta:
         model = Package
@@ -197,6 +216,7 @@ class PackageDetailSerializer(serializers.ModelSerializer):
             'reviews_count', 'views_count', 'leads_count', 'is_featured',
             'is_active', 'package_services', 'inclusions', 'exclusions',
             'itineraries', 'images', 'policies', 'availabilities',
+            'provider_images', 'video',
             'created_at', 'updated_at'
         ]
         read_only_fields = [
@@ -218,6 +238,12 @@ class PackageCreateUpdateSerializer(serializers.ModelSerializer):
     itineraries = PackageItinerarySerializer(many=True, required=False)
     policies = PackagePolicySerializer(many=True, required=False)
     availabilities = PackageAvailabilitySerializer(many=True, required=False)
+    uploaded_images = serializers.ListField(
+        child=Base64ImageField(),
+        write_only=True,
+        required=False
+    )
+    video = serializers.FileField(required=False)
     
     class Meta:
         model = Package
@@ -227,7 +253,7 @@ class PackageCreateUpdateSerializer(serializers.ModelSerializer):
             'end_date', 'city', 'state', 'country',
             'booking_deadline', 'max_capacity', 'featured_image',
             'is_active', 'services', 'inclusions', 'exclusions',
-            'itineraries', 'policies', 'availabilities'
+            'itineraries', 'policies', 'availabilities', 'uploaded_images', 'video'
         ]
         read_only_fields = ['id', 'city', 'state', 'country']
         extra_kwargs = {
@@ -237,6 +263,39 @@ class PackageCreateUpdateSerializer(serializers.ModelSerializer):
             'end_date': {'required': False},
             'booking_deadline': {'required': False},
         }
+    
+    def to_internal_value(self, data):
+        """
+        Custom to_internal_value to handle JSON strings in multipart/form-data
+        for nested list fields.
+        """
+        import json
+        
+        # List of fields that might be sent as JSON strings in multipart
+        json_fields = ['services', 'inclusions', 'exclusions', 'itineraries', 'policies', 'availabilities', 'uploaded_images']
+        
+        # Create a mutable copy of the data if it's a QueryDict
+        if hasattr(data, 'dict'):
+            # It's a QueryDict from multipart/form-data
+            processed_data = data.dict()
+            # For list fields, we need getlist
+            for field in json_fields:
+                if field in data:
+                    values = data.getlist(field)
+                    parsed_values = []
+                    for val in values:
+                        try:
+                            # Try to parse as JSON if it's a string
+                            if isinstance(val, str) and (val.startswith('{') or val.startswith('[')):
+                                parsed_values.append(json.loads(val))
+                            else:
+                                parsed_values.append(val)
+                        except json.JSONDecodeError:
+                            parsed_values.append(val)
+                    processed_data[field] = parsed_values
+            data = processed_data
+        
+        return super().to_internal_value(data)
     
     def validate(self, data):
         """Validate package data"""
@@ -275,6 +334,7 @@ class PackageCreateUpdateSerializer(serializers.ModelSerializer):
         itineraries_data = validated_data.pop('itineraries', [])
         policies_data = validated_data.pop('policies', [])
         availabilities_data = validated_data.pop('availabilities', [])
+        uploaded_images_data = validated_data.pop('uploaded_images', [])
         
         # Set provider from request user
         user = self.context['request'].user
@@ -292,6 +352,7 @@ class PackageCreateUpdateSerializer(serializers.ModelSerializer):
             self._create_itineraries(package, itineraries_data)
             self._create_policies(package, policies_data)
             self._create_availabilities(package, availabilities_data)
+            self._create_uploaded_images(package, uploaded_images_data)
         
         return package
     
@@ -303,6 +364,7 @@ class PackageCreateUpdateSerializer(serializers.ModelSerializer):
         itineraries_data = validated_data.pop('itineraries', None)
         policies_data = validated_data.pop('policies', None)
         availabilities_data = validated_data.pop('availabilities', None)
+        uploaded_images_data = validated_data.pop('uploaded_images', None)
         
         with transaction.atomic():
             # Update package
@@ -334,6 +396,10 @@ class PackageCreateUpdateSerializer(serializers.ModelSerializer):
             if availabilities_data is not None:
                 instance.availabilities.all().delete()
                 self._create_availabilities(instance, availabilities_data)
+            
+            if uploaded_images_data is not None:
+                instance.provider_images.all().delete()
+                self._create_uploaded_images(instance, uploaded_images_data)
         
         return instance
     
@@ -366,6 +432,15 @@ class PackageCreateUpdateSerializer(serializers.ModelSerializer):
         """Create package availabilities"""
         for availability_data in availabilities_data:
             PackageAvailability.objects.create(package=package, **availability_data)
+
+    def _create_uploaded_images(self, package, uploaded_images_data):
+        """Create provider-uploaded images"""
+        for index, image_data in enumerate(uploaded_images_data):
+            ProviderPackageImage.objects.create(
+                package=package,
+                image=image_data,
+                order=index
+            )
 
 
 class PackageStatusUpdateSerializer(serializers.ModelSerializer):

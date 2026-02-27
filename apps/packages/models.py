@@ -81,6 +81,7 @@ class Package(models.Model):
 
     slug = models.SlugField(unique=True, blank=True)
     featured_image = models.ForeignKey(ServiceImage, on_delete=models.SET_NULL, null=True, blank=True, related_name='featured_in_packages')
+    video = models.FileField(upload_to='package_videos/', null=True, blank=True)
 
     views_count = models.PositiveIntegerField(default=0)
     leads_count = models.PositiveIntegerField(default=0)
@@ -276,6 +277,19 @@ class PackageImage(BaseModel):
 
     def __str__(self):
         return f"{self.package.name} - Image {self.id}"
+
+
+class ProviderPackageImage(BaseModel):
+    package = models.ForeignKey(Package, on_delete=models.CASCADE, related_name='provider_images')
+    image = models.ImageField(upload_to='provider_package_images/')
+    caption = models.CharField(max_length=200, blank=True)
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order', 'id']
+
+    def __str__(self):
+        return f"{self.package.name} - Provider Image {self.id}"
 
 
 class PackagePolicy(BaseModel):

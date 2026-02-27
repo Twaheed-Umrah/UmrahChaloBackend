@@ -4,7 +4,7 @@ from django.utils import timezone
 from django.db import transaction
 from .models import (
     ServiceCategory, ServiceImage, Service, ServiceAvailability, 
-    ServiceFAQ, ServiceView, ServiceType, ServiceStatus
+    ServiceFAQ, ServiceView, ServiceType, ServiceStatus, ProviderServiceImage
 )
 from apps.authentication.serializers import UserProfileSerializer
 import base64
@@ -87,14 +87,15 @@ class ServiceImageSerializer(serializers.ModelSerializer):
             'alt_text', 'is_active', 'created_at', 'updated_at'
         ]
         read_only_fields = ['created_at', 'updated_at']
+
+class ProviderServiceImageSerializer(serializers.ModelSerializer):
+    """Serializer for provider-uploaded service images"""
+    image = Base64ImageField(required=False)
     
-    def get_image_url(self, obj):
-        if obj.image:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(obj.image.url)
-            return obj.image.url
-        return None
+    class Meta:
+        model = ProviderServiceImage
+        fields = ['id', 'image', 'caption', 'order']
+        read_only_fields = ['id']
 
 class ServiceAvailabilitySerializer(serializers.ModelSerializer):
     remaining_slots = serializers.ReadOnlyField()
@@ -143,7 +144,9 @@ class ServiceListSerializer(serializers.ModelSerializer):
             'duration', 'city', 'state', 'country', 'featured_image_url', 'provider', 
             'provider_company', 'average_rating', 'total_reviews', 'views_count',
             'is_featured', 'is_popular', 'is_premium', 'status', 'slug',
-            'is_available_today', 'service_specific_fields', 'availabilities', 'created_at', 'updated_at'
+            'is_available_today', 'service_specific_fields', 'availabilities', 
+            'video', 'provider_images',
+            'created_at', 'updated_at'
         ]
         read_only_fields = ['created_at', 'updated_at']
     
@@ -177,6 +180,7 @@ class ServiceDetailSerializer(serializers.ModelSerializer):
     discount_percentage = serializers.ReadOnlyField()
     has_active_subscription = serializers.SerializerMethodField()
     service_specific_fields = serializers.SerializerMethodField()
+    provider_images = ProviderServiceImageSerializer(many=True, read_only=True)
     
     class Meta:
         model = Service
@@ -192,6 +196,7 @@ class ServiceDetailSerializer(serializers.ModelSerializer):
             'slug', 'meta_title', 'meta_description', 'is_featured', 'is_popular', 
             'is_premium', 'provider', 'availabilities', 'faqs', 'average_rating', 
             'total_reviews', 'has_active_subscription', 'service_specific_fields',
+            'video', 'provider_images',
             
             # Air Ticket specific fields
             'departure_date', 'return_date', 'departure_city', 'arrival_city',
@@ -240,6 +245,12 @@ class ServiceCreateUpdateSerializer(serializers.ModelSerializer):
         required=False,
         write_only=True
     )
+    uploaded_images = serializers.ListField(
+        child=Base64ImageField(),
+        write_only=True,
+        required=False
+    )
+    video = serializers.FileField(required=False)
     
     class Meta:
         model = Service
@@ -268,7 +279,7 @@ class ServiceCreateUpdateSerializer(serializers.ModelSerializer):
             'transport_type', 'vehicle_capacity', 'pickup_location', 'drop_location',
             
             # Multi-date field
-            'availability_dates'
+            'availability_dates', 'uploaded_images', 'video'
         ]
         read_only_fields = ['city', 'state', 'country']
         extra_kwargs = {
@@ -276,6 +287,35 @@ class ServiceCreateUpdateSerializer(serializers.ModelSerializer):
             'description': {'required': False},
             'category': {'required': False},
         }
+    
+    def to_internal_value(self, data):
+        """
+        Custom to_internal_value to handle JSON strings in multipart/form-data
+        for list fields.
+        """
+        import json
+        
+        # List of fields that might be sent as JSON strings or multiple values
+        list_fields = ['availability_dates', 'uploaded_images', 'images', 'features', 'inclusions', 'exclusions']
+        
+        if hasattr(data, 'dict'):
+            processed_data = data.dict()
+            for field in list_fields:
+                if field in data:
+                    values = data.getlist(field)
+                    parsed_values = []
+                    for val in values:
+                        try:
+                            if isinstance(val, str) and (val.startswith('{') or val.startswith('[')):
+                                parsed_values.append(json.loads(val))
+                            else:
+                                parsed_values.append(val)
+                        except json.JSONDecodeError:
+                            parsed_values.append(val)
+                    processed_data[field] = parsed_values
+            data = processed_data
+            
+        return super().to_internal_value(data)
     
     def validate(self, data):
         """
@@ -345,6 +385,7 @@ class ServiceCreateUpdateSerializer(serializers.ModelSerializer):
         """
         user = self.context['request'].user
         availability_dates = validated_data.pop('availability_dates', [])
+        uploaded_images = validated_data.pop('uploaded_images', [])
 
         try:
             validated_data['provider'] = user.service_provider_profile
@@ -369,11 +410,20 @@ class ServiceCreateUpdateSerializer(serializers.ModelSerializer):
                     defaults={'is_available': True}
                 )
             
+            # Create provider images
+            for index, image_data in enumerate(uploaded_images):
+                ProviderServiceImage.objects.create(
+                    service=service,
+                    image=image_data,
+                    order=index
+                )
+            
             return service
 
     @transaction.atomic
     def update(self, instance, validated_data):
         availability_dates = validated_data.pop('availability_dates', None)
+        uploaded_images = validated_data.pop('uploaded_images', None)
         service = super().update(instance, validated_data)
 
         if availability_dates is not None:
@@ -384,6 +434,15 @@ class ServiceCreateUpdateSerializer(serializers.ModelSerializer):
                     service=service,
                     date=date,
                     defaults={'is_available': True}
+                )
+        
+        if uploaded_images is not None:
+            instance.provider_images.all().delete()
+            for index, image_data in enumerate(uploaded_images):
+                ProviderServiceImage.objects.create(
+                    service=service,
+                    image=image_data,
+                    order=index
                 )
         
         return service

@@ -371,3 +371,61 @@ def send_upgrade_suggestions():
         
     except Exception as e:
         logger.error(f"Error sending upgrade suggestions: {str(e)}")
+
+
+# ============ GROWTH PLAN CREDIT DEDUCTION TASKS ============
+
+@shared_task
+def deduct_impression_credits_task(provider_id):
+    """Asynchronous task to deduct impression credits for Growth Plan providers"""
+    from apps.authentication.models import ServiceProviderProfile
+    from .services import CreditService
+    try:
+        provider = ServiceProviderProfile.objects.get(id=provider_id)
+        CreditService.deduct_impression_credits(provider, None)
+        logger.info(f"Impression credits deducted asynchronously for provider {provider_id}")
+    except ServiceProviderProfile.DoesNotExist:
+        logger.error(f"Provider {provider_id} not found for impression credit deduction")
+    except Exception as e:
+        logger.error(f"Error in deduct_impression_credits_task for provider {provider_id}: {str(e)}")
+
+
+@shared_task
+def deduct_view_credits_task(provider_id, user_id=None):
+    """Asynchronous task to deduct view contact credits for Growth Plan providers"""
+    from apps.authentication.models import ServiceProviderProfile
+    from .services import CreditService
+    try:
+        provider = ServiceProviderProfile.objects.get(id=provider_id)
+        # Using consolidated method
+        CreditService.deduct_lead_credits(provider, user_id=user_id)
+        logger.info(f"View credits deducted asynchronously for provider {provider_id}")
+    except ServiceProviderProfile.DoesNotExist:
+        logger.error(f"Provider {provider_id} not found for view credit deduction")
+    except Exception as e:
+        logger.error(f"Error in deduct_view_credits_task for provider {provider_id}: {str(e)}")
+
+
+@shared_task
+def deduct_lead_credits_task(provider_id, lead_id=None, user_id=None):
+    """Asynchronous task to deduct lead credits for Growth Plan providers"""
+    from apps.authentication.models import ServiceProviderProfile
+    from apps.leads.models import Lead
+    from .services import CreditService
+    try:
+        provider = ServiceProviderProfile.objects.get(id=provider_id)
+        lead = Lead.objects.get(id=lead_id) if lead_id else None
+        
+        # Using consolidated method with user_id support
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        user = User.objects.get(id=user_id) if user_id else None
+        
+        CreditService.deduct_lead_credits(provider, lead=lead, user=user)
+        logger.info(f"Lead credits deducted asynchronously for provider {provider_id}")
+    except ServiceProviderProfile.DoesNotExist:
+        logger.error(f"Provider {provider_id} not found for lead credit deduction")
+    except Lead.DoesNotExist:
+        logger.error(f"Lead {lead_id} not found for credit deduction")
+    except Exception as e:
+        logger.error(f"Error in deduct_lead_credits_task for provider {provider_id}: {str(e)}")

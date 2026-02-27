@@ -5,7 +5,8 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models import Q, Count, Avg, Sum
+from django.db.models import Q, Count, Avg, Sum, Value, IntegerField, FloatField, Case, When, Exists, OuterRef
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from django.core.cache import cache
@@ -252,27 +253,146 @@ class ServiceViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """
-        Filter queryset based on user role and permissions
+        Filter queryset based on user role and apply ranking annotations
         """
         user = self.request.user
         role = self.get_user_role()
         
-        # Optimize base queryset with select_related and prefetch_related
-        base_queryset = self.queryset.select_related(
+        # 1. Base Queryset optimization
+        queryset = self.queryset.select_related(
             'provider', 'provider__user', 'category', 'featured_image', 'verified_by'
         ).prefetch_related('images', 'availabilities', 'faqs')
 
+        # 2. Apply Filtering based on role
         if role in ['admin', 'super_admin']:
-            # Admins can see all services
-            return base_queryset
+            # Admins see everything
+            pass
         elif role == 'provider':
-            # Providers can only see their own services
             if hasattr(user, 'service_provider_profile'):
-                return base_queryset.filter(provider=user.service_provider_profile)
-            return Service.objects.none()
+                queryset = queryset.filter(provider=user.service_provider_profile)
+            else:
+                queryset = Service.objects.none()
         else:
-            # Anonymous users and pilgrims can only see published services
-            return base_queryset.filter(status=ServiceStatus.PUBLISHED)
+            # Anonymous users and pilgrims see only published services
+            queryset = queryset.filter(status=ServiceStatus.PUBLISHED)
+
+        # 3. Apply Annotations (CRITICAL for ranking/list logic)
+        from django.db.models import Exists, OuterRef, Case, When, Value, IntegerField, Avg, FloatField
+        from django.db.models.functions import Coalesce
+        from apps.subscriptions.models import Subscription
+
+        active_growth_sub = Subscription.objects.filter(
+            user=OuterRef('provider__user'),
+            plan__plan_type='growth',
+            status='active',
+            start_date__lte=timezone.now(),
+            end_date__gte=timezone.now()
+        )
+        
+        queryset = queryset.annotate(
+            has_growth_plan=Exists(active_growth_sub)
+        ).annotate(
+            priority_score=Case(
+                When(has_growth_plan=True, then=Value(1)),
+                default=Value(0),
+                output_field=IntegerField(),
+            ),
+            # Add annotation for average_rating to allow sorting
+            average_rating_val=Coalesce(Avg('reviews__rating'), Value(0.0), output_field=FloatField())
+        )
+
+        return queryset
+        
+    def list(self, request, *args, **kwargs):
+        """Override list to apply multi-tier ranking and rotation logic"""
+        from apps.subscriptions.models import CreditWallet, Subscription
+        from datetime import datetime
+        import hashlib
+        
+        # 1. Get filtered queryset
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        # 2. Extract results to a list for custom sorting
+        service_list = list(queryset)
+        current_hour_str = datetime.now().strftime("%Y-%m-%d-%H")
+        
+        def get_ranking_info(service):
+            provider = service.provider
+            if not provider:
+                return (True, 3, 0, datetime.max.replace(tzinfo=None), 0, 0)
+            
+            # Sub & Credit Info
+            balance = 0
+            sub_start_date = datetime.max.replace(tzinfo=None)
+            has_priority_plan = False
+            
+            try:
+                balance = provider.user.creditwallet.balance
+            except:
+                pass
+            
+            sub = provider.get_active_subscription()
+            if sub and sub.plan.plan_type in ['ultra_premium', 'growth']:
+                has_priority_plan = True
+                sub_start_date = sub.start_date.replace(tzinfo=None) if sub.start_date else sub_start_date
+
+            # Tiering
+            tier = 3
+            if has_priority_plan:
+                tier = 1 if balance >= 10 else 2
+            
+            # Rotation for Tier 2
+            rotation_score = 0
+            if tier == 2:
+                seed = f"{service.id}-{current_hour_str}"
+                rotation_score = int(hashlib.md5(seed.encode()).hexdigest(), 16)
+            
+            return (
+                not provider.is_featured,
+                not service.is_featured,
+                tier, 
+                -balance if tier == 1 else 0,
+                sub_start_date if tier == 1 else datetime.max.replace(tzinfo=None),
+                -rotation_score if tier == 2 else 0,
+                -float(service.average_rating_val or 0)
+            )
+
+        # 3. Sort the list
+        ordered_services = sorted(service_list, key=get_ranking_info)
+        
+        # 4. Paginate the result list
+        page = self.paginate_queryset(ordered_services)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            self._deduct_impression_credits(serializer.data)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(ordered_services, many=True)
+        self._deduct_impression_credits(serializer.data)
+        return Response(serializer.data)
+
+    def _deduct_impression_credits(self, results):
+        """Helper to deduct impression credits from results"""
+        if not results:
+            return
+        
+        from apps.subscriptions.services import CreditService
+        from apps.authentication.models import ServiceProviderProfile
+        
+        provider_ids = set()
+        for item in results:
+            provider_id = item.get('provider')
+            if isinstance(provider_id, dict):
+                provider_id = provider_id.get('id')
+            if provider_id:
+                provider_ids.add(provider_id)
+        
+        for provider_id in provider_ids:
+            try:
+                provider = ServiceProviderProfile.objects.get(id=provider_id)
+                CreditService.deduct_impression_credits(provider, self.request)
+            except ServiceProviderProfile.DoesNotExist:
+                continue
 
     def get_serializer_class(self):
         """

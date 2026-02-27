@@ -103,6 +103,7 @@ class Service(BaseModel):
         blank=True,
         related_name='featured_services'
     )
+    video = models.FileField(upload_to='service_videos/', null=True, blank=True)
     
     # Status and verification
     status = models.CharField(max_length=20, choices=ServiceStatus.choices, default=ServiceStatus.PENDING)
@@ -482,6 +483,18 @@ class Service(BaseModel):
             })
         
         return {k: v for k, v in specific_fields.items() if v is not None}
+
+class ProviderServiceImage(BaseModel):
+    service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name='provider_images')
+    image = models.ImageField(upload_to='provider_service_images/')
+    caption = models.CharField(max_length=200, blank=True)
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order', 'id']
+
+    def __str__(self):
+        return f"{self.service.title} - Provider Image {self.id}"
 
 # Rest of the models remain the same
 class ServiceAvailability(BaseModel):

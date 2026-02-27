@@ -164,6 +164,26 @@ class City(BaseModel):
     def __str__(self):
         return f"{self.name}, {self.state.name}"
 
+class MasterPincode(BaseModel):
+    """
+    Master database of Indian pincodes for geographic targeting
+    """
+    pincode = models.CharField(max_length=10, db_index=True)
+    area_name = models.CharField(max_length=255)
+    city = models.CharField(max_length=100)
+    state = models.CharField(max_length=100)
+    latitude = models.DecimalField(max_digits=10, decimal_places=8, null=True, blank=True)
+    longitude = models.DecimalField(max_digits=11, decimal_places=8, null=True, blank=True)
+    
+    class Meta:
+        verbose_name = 'Master Pincode'
+        verbose_name_plural = 'Master Pincodes'
+        unique_together = ['pincode', 'area_name']
+        ordering = ['pincode', 'area_name']
+
+    def __str__(self):
+        return f"{self.pincode} - {self.area_name} ({self.city})"
+
 class ActivityLog(BaseModel):
     """
     Activity log model to track user actions

@@ -6,9 +6,21 @@ from .models import (
     Subscription, 
     SubscriptionHistory, 
     SubscriptionFeature, 
-    SubscriptionAlert
+    SubscriptionAlert,
+    CreditWallet,
+    CreditTransaction,
+    GrowthPlanArea,
+    ImpressionLog,
+    CreditPack
 )
 from apps.authentication.serializers import UserProfileSerializer;
+
+class CreditPackSerializer(serializers.ModelSerializer):
+    """Serializer for credit top-up packages"""
+    class Meta:
+        model = CreditPack
+        fields = ['id', 'name', 'credits', 'price', 'description', 'icon_type', 'savings_text']
+        read_only_fields = ['id']
 
 class SubscriptionPlanSerializer(serializers.ModelSerializer):
     """Serializer for subscription plans"""
@@ -22,8 +34,37 @@ class SubscriptionPlanSerializer(serializers.ModelSerializer):
             'unlimited_business_types', 'cross_business_leads', 
             'unlimited_uploads', 'featured_in_all_categories', 
             'dedicated_support',
+            'verified_seal', 'iata_verify_stamp', 'lead_catalogue',
+            'online_catalogue', 'guaranteed_leads',
+            'is_growth_plan', 'credits_included',
             'description', 'features', 'is_active', 'created_at'
         ]
+        read_only_fields = ['id', 'created_at']
+
+
+class CreditTransactionSerializer(serializers.ModelSerializer):
+    """Serializer for credit transactions"""
+    class Meta:
+        model = CreditTransaction
+        fields = ['id', 'action', 'amount', 'reference_id', 'metadata', 'timestamp']
+        read_only_fields = ['id', 'timestamp']
+
+
+class CreditWalletSerializer(serializers.ModelSerializer):
+    """Serializer for credit wallet"""
+    transactions = CreditTransactionSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = CreditWallet
+        fields = ['id', 'balance', 'updated_at', 'transactions']
+        read_only_fields = ['id', 'updated_at']
+
+
+class GrowthPlanAreaSerializer(serializers.ModelSerializer):
+    """Serializer for Growth Plan areas (pincodes)"""
+    class Meta:
+        model = GrowthPlanArea
+        fields = ['id', 'pincode', 'is_active', 'created_at']
         read_only_fields = ['id', 'created_at']
     
     def validate_price(self, value):
@@ -47,14 +88,24 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     is_active = serializers.ReadOnlyField()
     days_remaining = serializers.ReadOnlyField()
     is_expired = serializers.ReadOnlyField()
+    growth_areas = serializers.SerializerMethodField()
     
     class Meta:
         model = Subscription
         fields = [
             'id', 'user','user_details', 'plan', 'plan_details', 'start_date', 'end_date',
             'status', 'payment_id', 'amount_paid', 'auto_renew',
-            'is_active', 'days_remaining', 'is_expired', 'created_at', 'updated_at'
+            'is_active', 'days_remaining', 'is_expired', 'created_at', 'updated_at',
+            'growth_areas'
         ]
+    
+    def get_growth_areas(self, obj):
+        profile = getattr(obj.user, 'service_provider_profile', None)
+        if profile:
+            from .models import GrowthPlanArea
+            areas = GrowthPlanArea.objects.filter(provider=profile, is_active=True)
+            return [area.pincode for area in areas]
+        return []
         read_only_fields = ['id', 'created_at', 'updated_at']
     
     def validate(self, data):
@@ -86,15 +137,32 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
 class SubscriptionCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating subscriptions"""
+    pincodes = serializers.ListField(
+        child=serializers.CharField(max_length=10),
+        required=False,
+        write_only=True,
+        help_text="List of pincodes for Growth Plan"
+    )
     
     class Meta:
         model = Subscription
-        fields = ['plan', 'auto_renew']
+        fields = ['plan', 'auto_renew', 'pincodes']
     
+    def validate(self, data):
+        plan = data.get('plan')
+        pincodes = data.get('pincodes')
+        
+        if plan and plan.plan_type == 'growth' and not pincodes:
+            raise serializers.ValidationError(
+                {"pincodes": "Pincodes are required for Growth Plan"}
+            )
+        return data
+
     def create(self, validated_data):
         """Create subscription with user and proper dates"""
         user = self.context['request'].user
         plan = validated_data['plan']
+        pincodes = validated_data.pop('pincodes', [])
         
         # Check if user already has active subscription
         existing_subscription = Subscription.objects.filter(
@@ -117,6 +185,17 @@ class SubscriptionCreateSerializer(serializers.ModelSerializer):
             auto_renew=validated_data.get('auto_renew', False),
             status='pending'
         )
+        
+        # If it's a growth plan, save the requested pincodes
+        if plan.plan_type == 'growth' and pincodes:
+            from .models import GrowthPlanArea
+            provider_profile = getattr(user, 'service_provider_profile', None)
+            if provider_profile:
+                for code in pincodes:
+                    GrowthPlanArea.objects.get_or_create(
+                        provider=provider_profile,
+                        pincode=code
+                    )
         
         # Create history record
         SubscriptionHistory.objects.create(

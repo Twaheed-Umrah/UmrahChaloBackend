@@ -23,6 +23,7 @@ class Lead(models.Model):
         ('package', 'Package'),
         ('service', 'Service'),
         ('custom', 'Custom'),
+        ('contact_view', 'Contact View'),
     ]
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='leads')
