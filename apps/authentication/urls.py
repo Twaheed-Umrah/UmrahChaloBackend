@@ -68,6 +68,7 @@ urlpatterns = [
         path('register/', views.ServiceProviderRegistrationView.as_view(), name='provider-registration'),
         path('', views.ServiceProviderListView.as_view(), name='provider-list'),
         path('service-provider/me/', views.ServiceProviderDetailView.as_view(), name='provider-detail'),
+        path('<int:provider_id>/contact/', views.get_provider_contact, name='provider-contact'),
         path('<int:provider_id>/verify/', views.ProviderVerificationView.as_view(), name='provider-verification'),
     ])),
         

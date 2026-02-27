@@ -1,4 +1,5 @@
-from django.db.models import Q, F, Count, Avg
+from django.db.models import Q, F, Count, Avg, Value, IntegerField, FloatField, Case, When, Exists, OuterRef
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, permissions, status
@@ -86,41 +87,149 @@ class PackageViewSet(viewsets.ModelViewSet):
             return 'pilgrim'
     
     def get_queryset(self):
-        """Filter queryset based on user role"""
+        """Filter queryset based on user role and apply ranking annotations"""
         queryset = super().get_queryset()
         user_role = self.get_user_role()
         
-        # Anonymous users - only published and active packages
+        # 1. Apply Filtering based on role
         if user_role == 'anonymous':
-            return queryset.filter(
-                status='published',
-                is_active=True
-            )
-        
-        # PROVIDER role - show packages with any status if they own it
-        # PROVIDER role - should ONLY see own packages
-        if user_role == 'provider':
+            queryset = queryset.filter(status='published', is_active=True)
+        elif user_role == 'provider':
             if not hasattr(self.request.user, 'service_provider_profile'):
-                return queryset.none()
+                queryset = queryset.none()
+            else:
+                queryset = queryset.filter(provider=self.request.user.service_provider_profile)
+        elif user_role == 'pilgrim':
+            queryset = queryset.filter(status__in=['verified', 'published'], is_active=True)
+        elif user_role in ['admin', 'super_admin']:
+            # Admins see everything
+            pass
+        else:
+            # Default fallback
+            queryset = queryset.filter(status='published', is_active=True)
 
-            provider_profile = self.request.user.service_provider_profile
+        # 2. Apply Annotations (CRITICAL for ranking/list logic)
+        from django.db.models import Exists, OuterRef, Case, When, Value, IntegerField, Avg, FloatField
+        from django.db.models.functions import Coalesce
+        from apps.subscriptions.models import Subscription
 
-            # Providers only see their own packages ALWAYS
-            return queryset.filter(provider=provider_profile)
+        active_growth_sub = Subscription.objects.filter(
+            user=OuterRef('provider__user'),
+            plan__plan_type='growth',
+            status='active',
+            start_date__lte=timezone.now(),
+            end_date__gte=timezone.now()
+        )
+        
+        queryset = queryset.annotate(
+            has_growth_plan=Exists(active_growth_sub)
+        ).annotate(
+            priority_score=Case(
+                When(has_growth_plan=True, then=Value(1)),
+                default=Value(0),
+                output_field=IntegerField(),
+            ),
+            # Add annotation for average_rating to allow sorting
+            average_rating_val=Coalesce(Avg('reviews__rating'), Value(0.0), output_field=FloatField())
+        )
 
-        # PILGRIM role - only verified and published packages
-        if user_role == 'pilgrim':
-            return queryset.filter(
-                status__in=['verified', 'published'],
-                is_active=True
+        # 3. Apply Default Ordering
+        return queryset.order_by('-priority_score', '-is_featured', '-average_rating_val', '-created_at')
+
+    def list(self, request, *args, **kwargs):
+        """Override list to apply multi-tier ranking and rotation logic"""
+        from apps.subscriptions.models import CreditWallet, Subscription
+        from datetime import datetime
+        import hashlib
+        
+        # 1. Get filtered queryset
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        # 2. Extract results to a list for custom sorting
+        package_list = list(queryset)
+        current_hour_str = datetime.now().strftime("%Y-%m-%d-%H")
+        
+        # Pre-fetch balances and subscriptions for sorting efficiency
+        # (Alternatively, we can use the list directly if queryset was optimized)
+        
+        def get_ranking_info(package):
+            provider = package.provider
+            if not provider:
+                return (True, 3, 0, datetime.max.replace(tzinfo=None), 0, 0)
+            
+            # Sub & Credit Info
+            balance = 0
+            sub_start_date = datetime.max.replace(tzinfo=None)
+            has_priority_plan = False
+            
+            try:
+                balance = provider.user.creditwallet.balance
+            except:
+                pass
+            
+            sub = provider.get_active_subscription()
+            if sub and sub.plan.plan_type in ['ultra_premium', 'growth']:
+                has_priority_plan = True
+                sub_start_date = sub.start_date.replace(tzinfo=None) if sub.start_date else sub_start_date
+
+            # Tiering
+            tier = 3
+            if has_priority_plan:
+                tier = 1 if balance >= 10 else 2
+            
+            # Rotation for Tier 2
+            rotation_score = 0
+            if tier == 2:
+                seed = f"{package.id}-{current_hour_str}"
+                rotation_score = int(hashlib.md5(seed.encode()).hexdigest(), 16)
+            
+            return (
+                not provider.is_featured, # Featured providers first
+                not package.is_featured,  # Featured packages first
+                tier, 
+                -balance if tier == 1 else 0,
+                sub_start_date if tier == 1 else datetime.max.replace(tzinfo=None),
+                -rotation_score if tier == 2 else 0,
+                -float(package.average_rating_val or 0)
             )
+
+        # 3. Sort the list
+        ordered_packages = sorted(package_list, key=get_ranking_info)
         
-        # ADMIN and SUPER_ADMIN roles - show all packages with all statuses
-        if user_role in ['admin', 'super_admin']:
-            return queryset
+        # 4. Paginate the result list
+        page = self.paginate_queryset(ordered_packages)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            # Deduct credits for impression
+            self._deduct_impression_credits(serializer.data)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(ordered_packages, many=True)
+        self._deduct_impression_credits(serializer.data)
+        return Response(serializer.data)
+
+    def _deduct_impression_credits(self, results):
+        """Helper to deduct impression credits from results"""
+        if not results:
+            return
         
-        # Default fallback - published packages only
-        return queryset.filter(status='published', is_active=True)
+        from apps.subscriptions.services import CreditService
+        from apps.authentication.models import ServiceProviderProfile
+        
+        provider_ids = set()
+        for item in results:
+            provider_id = item.get('provider')
+            if isinstance(provider_id, dict):
+                provider_id = provider_id.get('id')
+            if provider_id:
+                provider_ids.add(provider_id)
+        
+        for provider_id in provider_ids:
+            try:
+                provider = ServiceProviderProfile.objects.get(id=provider_id)
+                CreditService.deduct_impression_credits(provider, self.request)
+            except ServiceProviderProfile.DoesNotExist:
+                continue
     
     def retrieve(self, request, *args, **kwargs):
         """Retrieve package and increment view count"""

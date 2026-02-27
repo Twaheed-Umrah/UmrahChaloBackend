@@ -57,45 +57,80 @@ def distribute_lead_to_providers(lead_id):
 
 def get_eligible_providers(lead):
     """
-    Get eligible service providers for a lead
+    Get eligible service providers for a lead based on:
+    - active & verified subscription (Basic, Ultra, Growth)
+    - geographic proximity (500km)
+    - business category matching
     """
+    from apps.core.utils import calculate_distance
+    from .serializers import LeadCreateSerializer
+    
+    # 1. Base Query: Verified and Active Providers with active subscriptions
     providers = ServiceProviderProfile.objects.filter(
+        verification_status='verified',
         is_active=True,
-        is_verified=True
-    )
-    
-    # Filter by active subscription
-    active_subscriptions = Subscription.objects.filter(
-        is_active=True,
-        expires_at__gt=timezone.now()
-    )
-    
-    providers = providers.filter(
-        subscriptions__in=active_subscriptions
+        subscriptions__is_active=True,
+        subscriptions__expires_at__gt=timezone.now()
     ).distinct()
+
+    # Determine target coordinates from the lead's associated package/service
+    origin_lat = None
+    origin_lng = None
+    if lead.package and lead.package.provider and lead.package.provider.user:
+        origin_lat = lead.package.provider.user.latitude
+        origin_lng = lead.package.provider.user.longitude
+    elif lead.service and lead.service.provider and lead.service.provider.user:
+        origin_lat = lead.service.provider.user.latitude
+        origin_lng = lead.service.provider.user.longitude
+
+    # Determine target business types
+    serializer = LeadCreateSerializer()
+    target_business_types = serializer.get_target_business_types(lead)
+
+    eligible_ids = []
     
-    # Filter by service/package type
-    if lead.package:
-        # For package leads, only the package owner gets the lead
-        providers = providers.filter(id=lead.package.provider.id)
-    elif lead.service:
-        # For service leads, only the service owner gets the lead
-        providers = providers.filter(id=lead.service.provider.id)
-    else:
-        # For custom leads, get providers who offer relevant services
-        if lead.selected_services:
-            service_types = lead.selected_services.keys()
-            providers = providers.filter(
-                services__service_type__in=service_types
-            ).distinct()
+    for provider in providers:
+        # Check if owner first (direct lead)
+        is_owner = (lead.package and lead.package.provider == provider) or \
+                   (lead.service and lead.service.provider == provider)
+        
+        if is_owner:
+            eligible_ids.append(provider.id)
+            continue
+
+        # Geographic check (500km radius)
+        if origin_lat and origin_lng and provider.user.latitude and provider.user.longitude:
+            distance = calculate_distance(
+                float(origin_lat), float(origin_lng),
+                float(provider.user.latitude), float(provider.user.longitude)
+            )
+            if distance > 500:
+                continue
+        
+        # Category Matching Criteria
+        if provider.business_type in target_business_types:
+            # Check for similar packages/services
+            if lead.package:
+                has_similar = provider.packages.filter(
+                    package_type=lead.package.package_type,
+                    package_category=lead.package.package_category,
+                    status='published'
+                ).exists()
+            else:
+                has_similar = provider.services.filter(
+                    service_type=lead.service.service_type,
+                    category=lead.service.category,
+                    status='published'
+                ).exists()
+            
+            if has_similar:
+                eligible_ids.append(provider.id)
     
-    # Sort by subscription type (Premium first)
-    providers = providers.order_by(
+    # Return filtered queryset
+    return ServiceProviderProfile.objects.filter(id__in=eligible_ids).order_by(
         '-subscriptions__plan__priority',
         '-subscriptions__created_at'
     )
-    
-    return providers
 
 
 @shared_task

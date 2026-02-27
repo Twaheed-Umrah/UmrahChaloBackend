@@ -127,25 +127,101 @@ class LeadSerializer(serializers.ModelSerializer):
     
     def distribute_lead(self, lead):
         """
-        Automatically distribute lead to relevant service providers based on business_type
+        Automatically distribute lead to relevant service providers.
+        - Ultra/Growth: Providers within 500km of target, same type/category/biz_type.
+        - Basic: Only providers of specific uploaded package/service.
         """
+        from apps.core.utils import calculate_distance
+        from apps.subscriptions.models import Subscription
+        
         target_business_types = self.get_target_business_types(lead)
         
-        # Get verified and active service providers with matching business types
-        target_providers = ServiceProviderProfile.objects.filter(
-            business_type__in=target_business_types,
+        # 1. Base Query: Verified and Active Providers
+        base_providers = ServiceProviderProfile.objects.filter(
             verification_status='verified',
             is_active=True
         ).exclude(
-            # Exclude providers who already received this lead
             id__in=LeadDistribution.objects.filter(lead=lead).values_list('provider_id', flat=True)
-        ).order_by('-is_featured', '-average_rating', '-total_bookings')
+        )
+
+        # Determine target coordinates from the lead's associated package/service
+        origin_lat = None
+        origin_lng = None
+        if lead.package and lead.package.provider and lead.package.provider.user:
+            origin_lat = lead.package.provider.user.latitude
+            origin_lng = lead.package.provider.user.longitude
+        elif lead.service and lead.service.provider and lead.service.provider.user:
+            origin_lat = lead.service.provider.user.latitude
+            origin_lng = lead.service.provider.user.longitude
+
+        filtered_providers = []
         
-        # Limit to top providers (can be configured)
-        max_providers = 10  # You can make this configurable
-        target_providers = target_providers[:max_providers]
+        # 2. Filter Providers based on Plan and Location
+        for provider in base_providers:
+            subscription = provider.get_active_subscription()
+            if not subscription:
+                continue
+            
+            plan_type = subscription.plan.plan_type
+            
+            # --- LEAD DISTRIBUTION LOGIC (Basic, Ultra, Growth) ---
+            # All these plans now receive nearby/category leads
+            if plan_type in ['basic', 'ultra_premium', 'growth']:
+                # Geographic check (500km radius)
+                if origin_lat and origin_lng and provider.user.latitude and provider.user.longitude:
+                    distance = calculate_distance(
+                        float(origin_lat), float(origin_lng),
+                        float(provider.user.latitude), float(provider.user.longitude)
+                    )
+                    if distance > 500:
+                        # EXCEPT if it's their own package/service (direct lead always delivered)
+                        is_owner = (lead.package and lead.package.provider == provider) or \
+                                   (lead.service and lead.service.provider == provider)
+                        if not is_owner:
+                            continue 
+                
+                # Matching Criteria: Same biz type and package/service category
+                # Providers also get direct leads for their own items regardless of business_type mismatch (though unlikely)
+                is_owner = (lead.package and lead.package.provider == provider) or \
+                           (lead.service and lead.service.provider == provider)
+                
+                if is_owner or provider.business_type in target_business_types:
+                    # Check for similar packages/services
+                    if is_owner:
+                        has_similar = True
+                    elif lead.package:
+                        has_similar = provider.packages.filter(
+                            package_type=lead.package.package_type,
+                            package_category=lead.package.package_category,
+                            status='published'
+                        ).exists()
+                    else:
+                        has_similar = provider.services.filter(
+                            service_type=lead.service.service_type,
+                            category=lead.service.category,
+                            status='published'
+                        ).exists()
+                    
+                    if has_similar:
+                        filtered_providers.append(provider)
+
+        # 3. Credit-Based Ranking/Limit
+        # Providers with wallet < 10 drop below Top 5
+        # (This is more for rotation, but we can prioritize those with higher balance)
+        from apps.subscriptions.models import CreditWallet
+        def get_balance(p):
+            try:
+                return p.user.creditwallet.balance
+            except:
+                return 0
+
+        filtered_providers.sort(key=lambda p: (get_balance(p) >= 10, -get_balance(p)), reverse=True)
         
-        # Create lead distributions
+        # Limit targeting
+        max_providers = 10
+        target_providers = filtered_providers[:max_providers]
+        
+        # 4. Create Distributions
         distributions = []
         for provider in target_providers:
             distribution = LeadDistribution.objects.create(
@@ -154,6 +230,14 @@ class LeadSerializer(serializers.ModelSerializer):
                 status='sent'
             )
             distributions.append(distribution)
+            
+            # Deduct credits (Consolidated 4-credit rule)
+            try:
+                from apps.subscriptions.tasks import deduct_lead_credits_task
+                deduct_lead_credits_task.delay(provider.id, lead.id)
+            except Exception:
+                from apps.subscriptions.services import CreditService
+                CreditService.deduct_lead_credits(provider, lead)
         
         # Update lead status
         if distributions:
@@ -294,39 +378,105 @@ class LeadCreateSerializer(serializers.ModelSerializer):
 
     def distribute_lead(self, lead):
         """
-        Automatically distribute lead to relevant service providers
+        Automatically distribute lead to relevant service providers.
+        Uses same logic as LeadSerializer.
         """
+        from apps.core.utils import calculate_distance
+        from apps.subscriptions.models import CreditWallet
+        
         target_business_types = self.get_target_business_types(lead)
 
-        # Fetch providers using ORM-level filtering for performance
-        target_providers = ServiceProviderProfile.objects.filter(
+        # Base Query
+        base_providers = ServiceProviderProfile.objects.filter(
             verification_status='verified',
             is_active=True
         ).exclude(
             id__in=LeadDistribution.objects.filter(lead=lead).values_list('provider_id', flat=True)
-        ).order_by('-is_featured', '-average_rating', '-total_bookings')
+        )
+
+        origin_lat = None
+        origin_lng = None
+        if lead.package and lead.package.provider and lead.package.provider.user:
+            origin_lat = lead.package.provider.user.latitude
+            origin_lng = lead.package.provider.user.longitude
+        elif lead.service and lead.service.provider and lead.service.provider.user:
+            origin_lat = lead.service.provider.user.latitude
+            origin_lng = lead.service.provider.user.longitude
 
         filtered_providers = []
-        for provider in target_providers:
+        for provider in base_providers:
             subscription = provider.get_active_subscription()
             if not subscription:
                 continue
+            
+            plan_type = subscription.plan.plan_type
+            
+            # --- LEAD DISTRIBUTION LOGIC (Basic, Ultra, Growth) ---
+            # All these plans now receive nearby/category leads
+            if plan_type in ['basic', 'ultra_premium', 'growth']:
+                if origin_lat and origin_lng and provider.user.latitude and provider.user.longitude:
+                    distance = calculate_distance(
+                        float(origin_lat), float(origin_lng),
+                        float(provider.user.latitude), float(provider.user.longitude)
+                    )
+                    if distance > 500:
+                        # EXCEPT if it's their own package/service (direct lead always delivered)
+                        is_owner = (lead.package and lead.package.provider == provider) or \
+                                   (lead.service and lead.service.provider == provider)
+                        if not is_owner:
+                            continue
+                
+                # Matching Criteria: Same biz type and package/service category
+                is_owner = (lead.package and lead.package.provider == provider) or \
+                           (lead.service and lead.service.provider == provider)
 
-            if subscription.plan.plan_type == 'ultra_premium' or provider.business_type in target_business_types:
-                filtered_providers.append(provider)
+                if is_owner or provider.business_type in target_business_types:
+                    if is_owner:
+                        has_similar = True
+                    elif lead.package:
+                        has_similar = provider.packages.filter(
+                            package_type=lead.package.package_type,
+                            package_category=lead.package.package_category,
+                            status='published'
+                        ).exists()
+                    else:
+                        has_similar = provider.services.filter(
+                            service_type=lead.service.service_type,
+                            category=lead.service.category,
+                            status='published'
+                        ).exists()
+                    
+                    if has_similar:
+                        filtered_providers.append(provider)
 
-        # Limit providers
+        # Ranking
+        def get_balance(p):
+            try:
+                return p.user.creditwallet.balance
+            except:
+                return 0
+        
+        filtered_providers.sort(key=lambda p: (get_balance(p) >= 10, -get_balance(p)), reverse=True)
+        
         max_providers = 10
-        filtered_providers = filtered_providers[:max_providers]
+        target_providers = filtered_providers[:max_providers]
 
         distributions = []
-        for provider in filtered_providers:
+        for provider in target_providers:
             distribution = LeadDistribution.objects.create(
                 lead=lead,
                 provider=provider,
                 status='sent'
             )
             distributions.append(distribution)
+            
+            # Deduct credits
+            try:
+                from apps.subscriptions.tasks import deduct_lead_credits_task
+                deduct_lead_credits_task.delay(provider.id, lead.id)
+            except Exception:
+                from apps.subscriptions.services import CreditService
+                CreditService.deduct_lead_credits(provider, lead)
 
         # Update lead status
         if distributions:
@@ -578,6 +728,14 @@ class LeadManualDistributionSerializer(serializers.Serializer):
                     status='sent'
                 )
                 distributions.append(distribution)
+                
+                # Deduct credits for lead asynchronously (Growth Plan only)
+                try:
+                    from apps.subscriptions.tasks import deduct_lead_credits_task
+                    deduct_lead_credits_task.delay(provider.id, lead.id)
+                except Exception:
+                    from apps.subscriptions.services import CreditService
+                    CreditService.deduct_lead_credits(provider, lead)
             
             # Update lead status
             if distributions:

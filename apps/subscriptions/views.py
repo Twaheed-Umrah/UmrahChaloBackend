@@ -12,7 +12,11 @@ from .models import (
     Subscription, 
     SubscriptionHistory, 
     SubscriptionFeature, 
-    SubscriptionAlert
+    SubscriptionAlert,
+    CreditWallet,
+    CreditTransaction,
+    GrowthPlanArea,
+    CreditPack
 )
 from .serializers import (
     SubscriptionPlanSerializer,
@@ -24,10 +28,50 @@ from .serializers import (
     SubscriptionRenewalSerializer,
     SubscriptionUpgradeSerializer,
     SubscriptionStatusSerializer,
-    UserSubscriptionSummarySerializer
+    UserSubscriptionSummarySerializer,
+    CreditWalletSerializer,
+    CreditTransactionSerializer,
+    GrowthPlanAreaSerializer,
+    CreditPackSerializer
 )
-from apps.core.permissions import IsServiceProvider, IsAdmin,IsSuperAdmin
+from apps.core.permissions import IsServiceProvider, IsAdmin,IsSuperAdmin, IsProviderOrReadOnly
 from apps.core.pagination import LargeResultsSetPagination
+
+
+class CreditPackViewSet(viewsets.ReadOnlyModelViewSet):
+    """ViewSet for active credit packs"""
+    queryset = CreditPack.objects.filter(is_active=True).order_by('price')
+    serializer_class = CreditPackSerializer
+    permission_classes = [permissions.AllowAny]
+
+
+class CreditWalletViewSet(viewsets.ReadOnlyModelViewSet):
+    """ViewSet for provider credit wallets"""
+    queryset = CreditWallet.objects.all()
+    serializer_class = CreditWalletSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return self.queryset.filter(user=self.request.user)
+
+    @action(detail=False, methods=['get'])
+    def my_wallet(self, request):
+        wallet, created = CreditWallet.objects.get_or_create(user=request.user)
+        serializer = self.get_serializer(wallet)
+        return Response(serializer.data)
+
+
+class GrowthPlanAreaViewSet(viewsets.ModelViewSet):
+    """ViewSet for geo-fenced growth areas"""
+    queryset = GrowthPlanArea.objects.all()
+    serializer_class = GrowthPlanAreaSerializer
+    permission_classes = [IsAuthenticated, IsServiceProvider]
+
+    def get_queryset(self):
+        return self.queryset.filter(provider__user=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(provider=self.request.user.service_provider_profile)
 
 
 class SubscriptionPlanViewSet(viewsets.ModelViewSet):

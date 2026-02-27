@@ -8,6 +8,9 @@ router.register(r'subscriptions', views.SubscriptionViewSet, basename='subscript
 router.register(r'history', views.SubscriptionHistoryViewSet, basename='subscription-history')
 router.register(r'features', views.SubscriptionFeatureViewSet, basename='subscription-features')
 router.register(r'alerts', views.SubscriptionAlertViewSet, basename='subscription-alerts')
+router.register(r'wallets', views.CreditWalletViewSet, basename='credit-wallets')
+router.register(r'growth-areas', views.GrowthPlanAreaViewSet, basename='growth-areas')
+router.register(r'credit-packs', views.CreditPackViewSet, basename='credit-packs')
 
 app_name = 'subscriptions'
 

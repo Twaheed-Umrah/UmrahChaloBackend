@@ -4,14 +4,27 @@ from .models import (
     Subscription,
     SubscriptionHistory,
     SubscriptionFeature,
-    SubscriptionAlert
+    SubscriptionAlert,
+    CreditWallet,
+    CreditTransaction,
+    GrowthPlanArea,
+    ImpressionLog,
+    CreditPack
 )
+
+
+@admin.register(CreditPack)
+class CreditPackAdmin(admin.ModelAdmin):
+    list_display = ('name', 'credits', 'price', 'is_active', 'savings_text')
+    list_filter = ('is_active',)
+    search_fields = ('name',)
+    ordering = ('price',)
 
 
 @admin.register(SubscriptionPlan)
 class SubscriptionPlanAdmin(admin.ModelAdmin):
-    list_display = ('name', 'plan_type', 'duration_months', 'price', 'is_active')
-    list_filter = ('plan_type', 'duration_months', 'is_active')
+    list_display = ('name', 'plan_type', 'duration_months', 'price', 'is_growth_plan', 'is_active')
+    list_filter = ('plan_type', 'duration_months', 'is_growth_plan', 'is_active')
     search_fields = ('name',)
     ordering = ('price',)
     readonly_fields = ('created_at', 'updated_at')
@@ -55,3 +68,33 @@ class SubscriptionAlertAdmin(admin.ModelAdmin):
     search_fields = ('subscription__user__email', 'message')
     ordering = ('-created_at',)
     readonly_fields = ('created_at', 'sent_at')
+
+
+@admin.register(CreditWallet)
+class CreditWalletAdmin(admin.ModelAdmin):
+    list_display = ('user', 'balance', 'updated_at')
+    search_fields = ('user__email',)
+    ordering = ('-updated_at',)
+
+
+@admin.register(CreditTransaction)
+class CreditTransactionAdmin(admin.ModelAdmin):
+    list_display = ('wallet', 'action', 'amount', 'timestamp')
+    list_filter = ('action',)
+    search_fields = ('wallet__user__email', 'reference_id')
+    ordering = ('-timestamp',)
+
+
+@admin.register(GrowthPlanArea)
+class GrowthPlanAreaAdmin(admin.ModelAdmin):
+    list_display = ('provider', 'pincode', 'is_active', 'created_at')
+    list_filter = ('is_active',)
+    search_fields = ('provider__business_name', 'pincode')
+    ordering = ('-created_at',)
+
+
+@admin.register(ImpressionLog)
+class ImpressionLogAdmin(admin.ModelAdmin):
+    list_display = ('provider', 'ip_address', 'timestamp')
+    search_fields = ('provider__business_name', 'ip_address')
+    ordering = ('-timestamp',)

@@ -9,6 +9,7 @@ from .models import (
     SavedPackage,
     UserActivity
 )
+from apps.subscriptions.models import GrowthPlanArea
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
@@ -64,6 +65,12 @@ class UserSessionAdmin(admin.ModelAdmin):
     list_filter = ('is_active',)
     search_fields = ('user__email', 'session_key', 'ip_address')
 
+class GrowthPlanAreaInline(admin.TabularInline):
+    model = GrowthPlanArea
+    extra = 0
+    fields = ('pincode', 'is_active', 'created_at')
+    readonly_fields = ('created_at',)
+
 @admin.register(ServiceProviderProfile)
 class ServiceProviderProfileAdmin(admin.ModelAdmin):
     list_display = (
@@ -72,6 +79,7 @@ class ServiceProviderProfileAdmin(admin.ModelAdmin):
     )
     list_filter = ('business_type', 'verification_status', 'is_active', 'is_featured')
     search_fields = ('business_name', 'user__email', 'business_phone', 'business_email')
+    inlines = [GrowthPlanAreaInline]
 
 @admin.register(SavedPackage)
 class SavedPackageAdmin(admin.ModelAdmin):

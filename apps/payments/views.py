@@ -24,10 +24,18 @@ from .serializers import (
     PaymentRefundUpdateSerializer, PaymentTransactionSerializer,
     PaymentWebhookSerializer, PaymentAnalyticsSerializer, PaymentDashboardSerializer
 )
-from apps.subscriptions.models import SubscriptionPlan,Subscription,SubscriptionHistory,SubscriptionFeature,SubscriptionAlert
+from apps.subscriptions.models import (
+    Subscription,
+    SubscriptionPlan,
+    SubscriptionHistory,
+    CreditPack,
+    SubscriptionFeature,
+    SubscriptionAlert
+)
 from .utils import PaymentGatewayManager
 import logging
 from apps.notifications.services import NotificationService
+from apps.subscriptions.services import CreditService
 logger = logging.getLogger(__name__)
 
 class PaymentMethodListView(generics.ListAPIView):
@@ -328,6 +336,19 @@ def create_new_subscription(payment, user):
         # Link payment to subscription
         payment.subscription = subscription
         payment.save()
+
+    # If it's a growth plan, handle pincodes from metadata
+    if plan.plan_type == 'growth':
+        pincodes = payment.metadata.get('pincodes', [])
+        if pincodes:
+            from apps.subscriptions.models import GrowthPlanArea
+            provider_profile = getattr(user, 'service_provider_profile', None)
+            if provider_profile:
+                for code in pincodes:
+                    GrowthPlanArea.objects.get_or_create(
+                        provider=provider_profile,
+                        pincode=code
+                    )
     
     # Create subscription history
     SubscriptionHistory.objects.create(
@@ -449,6 +470,20 @@ def upgrade_subscription(payment, user):
     # Update subscription features for new plan
     update_subscription_features(subscription, new_plan)
     
+    # Handle pincodes if upgrading to growth plan
+    if new_plan.plan_type == 'growth':
+        pincodes = payment.metadata.get('pincodes', [])
+        if pincodes:
+            from apps.subscriptions.models import GrowthPlanArea
+            provider_profile = getattr(user, 'service_provider_profile', None)
+            if provider_profile:
+                # Add new areas
+                for code in pincodes:
+                    GrowthPlanArea.objects.get_or_create(
+                        provider=provider_profile,
+                        pincode=code
+                    )
+    
     logger.info(f"Subscription upgraded for user {user.email} from {old_plan.name} to {new_plan.name}")
     
     return {
@@ -462,19 +497,45 @@ def upgrade_subscription(payment, user):
 
 
 def handle_addon_purchase(payment, user):
-    """Handle add-on purchase"""
-    # Implementation depends on your add-on system
-    # This is a placeholder implementation
-    
+    """Handle add-on purchase (e.g., Credit Top-up)"""
     addon_type = payment.metadata.get('addon_type')
-    addon_value = payment.metadata.get('addon_value', 0)
     
-    logger.info(f"Add-on purchased: {addon_type} for user {user.email}")
+    if addon_type == 'credits':
+        pack_id = payment.metadata.get('pack_id')
+        credit_amount = payment.metadata.get('addon_amount', 0)
+        
+        # Validate against CreditPack model if pack_id is provided
+        if pack_id:
+            try:
+                pack = CreditPack.objects.get(id=pack_id, is_active=True)
+                credit_amount = pack.credits
+                logger.info(f"Verified credit pack {pack.name} for user {user.email}")
+            except CreditPack.DoesNotExist:
+                logger.error(f"Invalid or inactive credit pack ID {pack_id} for user {user.email}")
+                return {'error': 'Invalid credit pack'}
+
+        if credit_amount > 0:
+            CreditService.add_credits(
+                user=user, 
+                amount=int(credit_amount),
+                action='recharge',
+                metadata={
+                    'payment_id': payment.id,
+                    'gateway_id': payment.gateway_payment_id,
+                    'pack_id': pack_id
+                }
+            )
+            logger.info(f"Added {credit_amount} credits to user {user.email} via payment {payment.id}")
+            return {
+                'addon_type': 'credits',
+                'addon_value': credit_amount,
+                'message': f'Successfully added {credit_amount} credits to your wallet.'
+            }
     
+    logger.warning(f"Unknown or invalid add-on purchase: {addon_type} for user {user.email}")
     return {
         'addon_type': addon_type,
-        'addon_value': addon_value,
-        'message': f'Add-on {addon_type} purchased successfully'
+        'message': f'Add-on {addon_type} processed but no action taken.'
     }
 
 

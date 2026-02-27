@@ -15,6 +15,7 @@ class SubscriptionPlan(models.Model):
         ('basic', 'Basic'),
         ('premium', 'Premium'),
         ('ultra_premium', 'Ultra Premium'),
+        ('growth', 'Growth Plan'),
     ]
     
     DURATION_CHOICES = [
@@ -22,6 +23,8 @@ class SubscriptionPlan(models.Model):
         (3, '3 Months'),
         (6, '6 Months'),
         (12, '12 Months'),
+        (24, '24 Months'),
+        (36, '36 Months'),
     ]
     
     name = models.CharField(max_length=100)
@@ -49,6 +52,17 @@ class SubscriptionPlan(models.Model):
     unlimited_uploads = models.BooleanField(default=False)
     featured_in_all_categories = models.BooleanField(default=False)
     dedicated_support = models.BooleanField(default=False)
+
+    # New Features mapping
+    verified_seal = models.BooleanField(default=False)
+    iata_verify_stamp = models.BooleanField(default=False)
+    lead_catalogue = models.BooleanField(default=False)
+    online_catalogue = models.BooleanField(default=False)
+    guaranteed_leads = models.BooleanField(default=False)
+
+    # Growth Plan specific
+    is_growth_plan = models.BooleanField(default=False)
+    credits_included = models.IntegerField(default=0)
     
     # Plan details
     description = models.TextField(blank=True)
@@ -62,6 +76,66 @@ class SubscriptionPlan(models.Model):
         db_table = 'subscription_plans'
         ordering = ['price']
         unique_together = ['plan_type', 'duration_months']
+
+
+class CreditWallet(models.Model):
+    """Stores credit balance for providers"""
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='credit_wallet')
+    balance = models.IntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'credit_wallets'
+
+    def __str__(self):
+        return f"{self.user.email} - Balance: {self.balance}"
+
+
+class CreditTransaction(models.Model):
+    """Logs credit usage and recharges"""
+    ACTION_CHOICES = [
+        ('impression', 'Impression'),
+        ('view_contact', 'View Contact'),
+        ('valid_lead', 'Valid Lead'),
+        ('recharge', 'Recharge'),
+        ('bonus', 'Bonus'),
+    ]
+
+    wallet = models.ForeignKey(CreditWallet, on_delete=models.CASCADE, related_name='transactions')
+    action = models.CharField(max_length=20, choices=ACTION_CHOICES)
+    amount = models.IntegerField()  # Negative for usage, positive for recharges
+    reference_id = models.CharField(max_length=100, blank=True, null=True) # e.g. Lead ID
+    metadata = models.JSONField(default=dict, blank=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'credit_transactions'
+        ordering = ['-timestamp']
+
+
+class GrowthPlanArea(models.Model):
+    """Geo-fencing for Growth Plan providers"""
+    provider = models.ForeignKey('authentication.ServiceProviderProfile', on_delete=models.CASCADE, related_name='growth_areas')
+    pincode = models.CharField(max_length=10)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'growth_plan_areas'
+        unique_together = ['provider', 'pincode']
+
+
+class ImpressionLog(models.Model):
+    """Safety log to prevent over-deduction of credits for impressions"""
+    provider = models.ForeignKey('authentication.ServiceProviderProfile', on_delete=models.CASCADE, related_name='impression_logs')
+    user_id = models.CharField(max_length=100, blank=True, null=True) # Logged in user ID
+    session_id = models.CharField(max_length=100, blank=True, null=True) # Anonymous session
+    ip_address = models.GenericIPAddressField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'impression_logs'
+        ordering = ['-timestamp']
     
     def __str__(self):
         return f"{self.name} - {self.duration_months} months"
@@ -268,3 +342,22 @@ class SubscriptionAlert(models.Model):
         self.is_sent = True
         self.sent_at = timezone.now()
         self.save()
+
+
+class CreditPack(models.Model):
+    """Model for credit top-up packages managed by super admin"""
+    name = models.CharField(max_length=100)
+    credits = models.PositiveIntegerField(help_text="Number of credits in this pack")
+    price = models.DecimalField(max_digits=10, decimal_places=2, help_text="Price in INR")
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+    icon_type = models.CharField(max_length=50, default='zap', help_text="Lucide icon name")
+    savings_text = models.CharField(max_length=50, blank=True, help_text="e.g. 20% OFF")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['price']
+
+    def __str__(self):
+        return f"{self.name} ({self.credits} Credits - ₹{self.price})"
