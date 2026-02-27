@@ -1,1 +1,1 @@
-💰 Payment successful! ₹{{ amount }} has been processed. Transaction ID: {{ transaction_id }}
+Payment successful! ₹{{ amount }} has been processed. Transaction ID: {{ transaction_id }}

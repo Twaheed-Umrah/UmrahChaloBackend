@@ -436,7 +436,7 @@ def upgrade_subscription(payment, user):
     old_plan = subscription.plan
     
     # Get new plan from payment metadata
-    new_plan_id = payment.metadata.get('new_plan_id')
+    new_plan_id = payment.metadata.get('new_plan_id') or payment.metadata.get('plan_id')
     if not new_plan_id:
         raise ValueError("No new plan specified for upgrade")
     
@@ -986,17 +986,17 @@ def webhook_handler(request, gateway_type):
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 def cancel_payment(request, payment_id):
-    """Cancel a pending payment"""
+    """Cancel a pending payment and mark it as failed"""
     try:
         payment = get_object_or_404(Payment, id=payment_id, user=request.user)
         
-        if payment.status != 'pending':
+        if payment.status not in ['pending', 'processing']:
             return Response({
                 'success': False,
-                'message': 'Only pending payments can be cancelled'
+                'message': 'Only pending or processing payments can be cancelled'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        payment.status = 'cancelled'
+        payment.status = 'failed'
         payment.failed_at = timezone.now()
         payment.save()
         
@@ -1006,13 +1006,15 @@ def cancel_payment(request, payment_id):
             transaction_type='payment',
             amount=payment.amount,
             currency=payment.currency,
-            status='cancelled',
-            description=f'Payment cancelled by user'
+            status='failed',
+            description='Payment cancelled by user (modal dismissed or payment not completed)'
         )
+        
+        logger.info(f"Payment {payment.id} marked as failed (cancelled by user {request.user.email})")
         
         return Response({
             'success': True,
-            'message': 'Payment cancelled successfully'
+            'message': 'Payment cancelled and marked as failed'
         })
         
     except Exception as e:
