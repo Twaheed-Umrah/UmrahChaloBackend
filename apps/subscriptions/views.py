@@ -38,11 +38,28 @@ from apps.core.permissions import IsServiceProvider, IsAdmin,IsSuperAdmin, IsPro
 from apps.core.pagination import LargeResultsSetPagination
 
 
-class CreditPackViewSet(viewsets.ReadOnlyModelViewSet):
+class CreditPackViewSet(viewsets.ModelViewSet):
     """ViewSet for active credit packs"""
-    queryset = CreditPack.objects.filter(is_active=True).order_by('price')
+    queryset = CreditPack.objects.all()
     serializer_class = CreditPackSerializer
-    permission_classes = [permissions.AllowAny]
+    
+    def get_permissions(self):
+        """Get permissions based on action"""
+        if self.action in ['list', 'retrieve']:
+            permission_classes = [permissions.AllowAny]
+        else:
+            permission_classes = [IsSuperAdmin]
+        return [permission() for permission in permission_classes]
+    
+    def get_queryset(self):
+        """Filter packs based on user role"""
+        queryset = CreditPack.objects.all()
+        
+        # Only show active packs to regular users in list/retrieve
+        if self.action in ['list', 'retrieve'] and not self.request.user.is_staff:
+            queryset = queryset.filter(is_active=True)
+            
+        return queryset.order_by('price')
 
 
 class CreditWalletViewSet(viewsets.ReadOnlyModelViewSet):

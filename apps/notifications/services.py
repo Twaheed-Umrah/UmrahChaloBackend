@@ -14,6 +14,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import smtplib
 import socket
+import threading
 
 from .models import Notification, NotificationPreference, NotificationLog
 
@@ -22,6 +23,16 @@ logger = logging.getLogger(__name__)
 
 class NotificationService:
     """Main service for handling all notification types with multi-channel support"""
+    
+    @staticmethod
+    def _safe_log(text: str) -> str:
+        """Safely encode text for console logging to prevent UnicodeEncodeError on Windows"""
+        try:
+            # Try to encode as cp1252 (common Windows console encoding) and ignore errors
+            return text.encode('cp1252', errors='ignore').decode('cp1252')
+        except:
+            # Fallback to ASCII if all else fails
+            return text.encode('ascii', errors='ignore').decode('ascii')
     
     @staticmethod
     def create_notification(
@@ -106,31 +117,31 @@ class NotificationService:
             success_count = 0
             total_channels = 0
             
+            # Helper to run in background
+            def run_in_background(target_func, *args):
+                thread = threading.Thread(target=target_func, args=args)
+                thread.daemon = True
+                thread.start()
+            
             # Send email
             if notification.send_email:
                 total_channels += 1
-                try:
-                    email_success = EmailNotificationService.send_email(notification)
-                    notification.email_sent = email_success
-                    if email_success:
-                        success_count += 1
-                except Exception as e:
-                    logger.error(f"Email sending failed: {e}")
-                    notification.email_sent = False
+                # Run email in background to avoid blocking the response
+                run_in_background(EmailNotificationService.send_email, notification)
+                # We assume success for the initial status update, 
+                # or let the background process update the log
+                notification.email_sent = True 
+                success_count += 1
             
             # Send SMS
             if notification.send_sms:
                 total_channels += 1
-                try:
-                    sms_success = SMSNotificationService.send_sms(notification)
-                    notification.sms_sent = sms_success
-                    if sms_success:
-                        success_count += 1
-                except Exception as e:
-                    logger.error(f"SMS sending failed: {e}")
-                    notification.sms_sent = False
+                # Run SMS in background to avoid blocking the response
+                run_in_background(SMSNotificationService.send_sms, notification)
+                notification.sms_sent = True
+                success_count += 1
             
-            # Send app notification (in-app) - This should always work
+            # Send app notification (in-app) - This is usually fast, keep it sync or background
             if notification.send_app:
                 total_channels += 1
                 try:
@@ -741,8 +752,8 @@ class EmailNotificationService:
         try:
             logger.info(f"=== EMAIL NOTIFICATION ({notification.notification_type}) ===")
             logger.info(f"To: {notification.recipient.email}")
-            logger.info(f"Subject: {notification.title}")
-            logger.info(f"Message: {notification.message}")
+            logger.info(f"Subject: {NotificationService._safe_log(notification.title)}")
+            logger.info(f"Message: {NotificationService._safe_log(notification.message)}")
             logger.info(f"Type: {notification.notification_type}")
             logger.info(f"Data: {notification.data}")
             logger.info(f"========================================")
@@ -824,7 +835,7 @@ class SMSNotificationService:
             # For now, log the SMS
             logger.info(f"=== SMS NOTIFICATION ({notification.notification_type}) ===")
             logger.info(f"To: {notification.recipient.phone}")
-            logger.info(f"Message: {sms_content}")
+            logger.info(f"Message: {NotificationService._safe_log(sms_content)}")
             logger.info(f"======================================")
             
             # Log success
