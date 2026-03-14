@@ -336,6 +336,19 @@ def create_new_subscription(payment, user):
         # Link payment to subscription
         payment.subscription = subscription
         payment.save()
+        
+    # Allocate included credits if any
+    if plan.credits_included > 0:
+        CreditService.add_credits(
+            user=user,
+            amount=plan.credits_included,
+            action='recharge',
+            metadata={
+                'subscription_id': subscription.id,
+                'payment_id': payment.id,
+                'description': f'Included credits for {plan.name} subscription'
+            }
+        )
 
     # If it's a growth plan, handle pincodes from metadata
     if plan.plan_type == 'growth':
@@ -402,6 +415,19 @@ def renew_subscription(payment, user):
     subscription.payment_id = payment.gateway_payment_id
     subscription.amount_paid = payment.total_amount
     subscription.save()
+
+    # Allocate included credits if any
+    if plan.credits_included > 0:
+        CreditService.add_credits(
+            user=user,
+            amount=plan.credits_included,
+            action='recharge',
+            metadata={
+                'subscription_id': subscription.id,
+                'payment_id': payment.id,
+                'description': f'Renewed included credits for {plan.name} subscription'
+            }
+        )
     
     # Create subscription history
     SubscriptionHistory.objects.create(
@@ -455,6 +481,19 @@ def upgrade_subscription(payment, user):
         subscription.end_date = timezone.now() + timedelta(days=30 * new_plan.duration_months)
     
     subscription.save()
+
+    # Allocate included credits for the new plan if any
+    if new_plan.credits_included > 0:
+        CreditService.add_credits(
+            user=user,
+            amount=new_plan.credits_included,
+            action='recharge',
+            metadata={
+                'subscription_id': subscription.id,
+                'payment_id': payment.id,
+                'description': f'Upgrade included credits for {new_plan.name} subscription'
+            }
+        )
     
     # Create subscription history
     SubscriptionHistory.objects.create(

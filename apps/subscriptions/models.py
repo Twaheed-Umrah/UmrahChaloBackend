@@ -143,7 +143,7 @@ class ImpressionLog(models.Model):
     @property
     def has_unlimited_access(self):
         """Check if plan has unlimited access to all business types"""
-        return self.plan_type == 'ultra_premium'
+        return self.plan_type in ['ultra_premium', 'growth']
     
     @property
     def monthly_price(self):
@@ -224,15 +224,15 @@ class Subscription(models.Model):
     
     def can_upload_any_service_type(self):
         """Check if subscription allows uploading any service type"""
-        return self.plan.plan_type == 'ultra_premium'
+        return self.plan.plan_type in ['ultra_premium', 'growth']
     
     def can_upload_any_package(self):
         """Check if subscription allows uploading any package"""
-        return self.plan.plan_type == 'ultra_premium'
+        return self.plan.plan_type in ['ultra_premium', 'growth']
     
     def gets_cross_business_leads(self):
         """Check if subscription gets leads from all business types"""
-        return self.plan.plan_type == 'ultra_premium'
+        return self.plan.plan_type in ['ultra_premium', 'growth']
 
 
 class SubscriptionHistory(models.Model):
