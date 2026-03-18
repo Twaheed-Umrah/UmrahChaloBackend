@@ -322,7 +322,7 @@ class PackageViewSet(viewsets.ModelViewSet):
             package = self.get_queryset().get(id=package_id)
 
             # Use detail serializer
-            serializer = PackageDetailSerializer(package)
+            serializer = PackageDetailSerializer(package, context={'request': request})
             return Response(serializer.data)
 
         except Package.DoesNotExist:
