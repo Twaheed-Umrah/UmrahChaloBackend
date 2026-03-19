@@ -77,6 +77,13 @@ class CreditWalletViewSet(viewsets.ReadOnlyModelViewSet):
         serializer = self.get_serializer(wallet)
         return Response(serializer.data)
 
+    @action(detail=True, methods=['get'])
+    def transactions(self, request, pk=None):
+        wallet = self.get_object()
+        transactions = wallet.transactions.all().order_by('-timestamp')
+        serializer = CreditTransactionSerializer(transactions, many=True)
+        return Response(serializer.data)
+
 
 class GrowthPlanAreaViewSet(viewsets.ModelViewSet):
     """ViewSet for geo-fenced growth areas"""

@@ -15,7 +15,9 @@ api_patterns = [
     path('reviews/', include('apps.reviews.urls')),
     path('banner/', include('apps.banners.urls')),
     path('core/', include('apps.core.urls')),
+    path('inquiries/', include('apps.inquiries.urls')),
 ]
+
 
 urlpatterns = [
     path('admin/', admin.site.urls),

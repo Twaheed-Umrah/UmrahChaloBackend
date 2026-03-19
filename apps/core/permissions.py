@@ -13,7 +13,11 @@ class IsOwnerOrReadOnly(permissions.BasePermission):
             return True
         
         # Write permissions are only allowed to the owner of the object.
-        return obj.user == request.user
+        if hasattr(obj, 'user'):
+            return obj.user == request.user
+        if hasattr(obj, 'provider'):
+            return obj.provider.user == request.user
+        return False
 
 class IsPilgrim(permissions.BasePermission):
     """
@@ -129,11 +133,11 @@ class CanViewLead(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
         # Pilgrims can view their own leads
         if request.user.user_type == UserRole.PILGRIM:
-            return obj.pilgrim == request.user.profile
+            return obj.pilgrim == request.user
         
         # Providers can view leads sent to them
         if request.user.user_type == UserRole.PROVIDER:
-            return obj.providers.filter(id=request.user.profile.id).exists()
+            return obj.providers.filter(user=request.user).exists()
         
         # Admins can view all leads
         if request.user.user_type in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
@@ -148,7 +152,7 @@ class CanManagePackage(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
         # Providers can manage their own packages
         if request.user.user_type == UserRole.PROVIDER:
-            return obj.provider == request.user.profile
+            return obj.provider.user == request.user
         
         # Admins can manage all packages
         if request.user.user_type in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
@@ -163,7 +167,7 @@ class CanManageService(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
         # Providers can manage their own services
         if request.user.user_type == UserRole.PROVIDER:
-            return obj.provider == request.user.profile
+            return obj.provider.user == request.user
         
         # Admins can manage all services
         if request.user.user_type in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
@@ -185,7 +189,11 @@ class ReadOnlyOrOwnerWrite(permissions.BasePermission):
             return True
         
         # Write permissions only for the owner
-        return obj.user == request.user
+        if hasattr(obj, 'user'):
+            return obj.user == request.user
+        if hasattr(obj, 'provider'):
+            return obj.provider.user == request.user
+        return False
 
 class IsOwnerOrAdminOrReadOnly(permissions.BasePermission):
     """
@@ -202,6 +210,8 @@ class IsOwnerOrAdminOrReadOnly(permissions.BasePermission):
         
         # Write permissions for owner
         if hasattr(obj, 'user') and obj.user == request.user:
+            return True
+        if hasattr(obj, 'provider') and obj.provider.user == request.user:
             return True
         
         # Write permissions for admins
@@ -232,5 +242,9 @@ class IsProviderOrReadOnly(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS:
             return request.user.is_authenticated
         
-        # Write permissions only for the provider owner
-        return obj.user == request.user
+        # Write permissions only for the owner
+        if hasattr(obj, 'user'):
+            return obj.user == request.user
+        if hasattr(obj, 'provider'):
+            return obj.provider.user == request.user
+        return False
