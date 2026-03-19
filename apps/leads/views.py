@@ -395,7 +395,30 @@ class LeadDistributionViewSet(viewsets.ReadOnlyModelViewSet):
             'viewed_at': distribution.viewed_at,
             'status': distribution.status
         })
-    
+
+    @action(detail=False, methods=['post'])
+    def mark_all_viewed(self, request):
+        """
+        Mark all leads as viewed for the current provider
+        """
+        if hasattr(request.user, 'service_provider_profile'):
+            distributions = LeadDistribution.objects.filter(
+                provider=request.user.service_provider_profile,
+                viewed_at__isnull=True
+            )
+            count = distributions.count()
+            
+            distributions.update(
+                viewed_at=timezone.now(),
+                status='viewed'
+            )
+            
+            return Response({
+                'message': f'{count} leads marked as viewed',
+                'count': count
+            })
+        return Response({'error': 'Not authorized'}, status=status.HTTP_403_FORBIDDEN)
+
     @action(detail=True, methods=['post'])
     def respond(self, request, pk=None):
         """

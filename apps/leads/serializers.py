@@ -33,27 +33,35 @@ class LeadSerializer(serializers.ModelSerializer):
         """
         Custom validation for Lead
         """
+        # For partial updates, check existing values if they're not in data
+        instance = getattr(self, 'instance', None)
+        lead_type = data.get('lead_type', getattr(instance, 'lead_type', None))
+        package = data.get('package', getattr(instance, 'package', None))
+        service = data.get('service', getattr(instance, 'service', None))
+
         # Either package or service must be provided for non-custom leads
-        if data.get('lead_type') != 'custom':
-            if not data.get('package') and not data.get('service'):
+        if lead_type != 'custom':
+            if not package and not service:
                 raise serializers.ValidationError(
                     "Either package or service must be provided for non-custom leads"
                 )
             
             # Both package and service cannot be provided
-            if data.get('package') and data.get('service'):
+            if package and service:
                 raise serializers.ValidationError(
                     "Both package and service cannot be provided"
                 )
         
         # Validate preferred date
-        if data.get('preferred_date') and data['preferred_date'] < timezone.now().date():
+        preferred_date = data.get('preferred_date', getattr(instance, 'preferred_date', None))
+        if preferred_date and preferred_date < timezone.now().date():
             raise serializers.ValidationError(
                 "Preferred date cannot be in the past"
             )
         
         # Validate number of people
-        if data.get('number_of_people', 1) < 1:
+        number_of_people = data.get('number_of_people', getattr(instance, 'number_of_people', 1))
+        if number_of_people < 1:
             raise serializers.ValidationError(
                 "Number of people must be at least 1"
             )

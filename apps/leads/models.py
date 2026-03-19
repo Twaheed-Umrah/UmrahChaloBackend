@@ -115,6 +115,27 @@ class LeadDistribution(BaseModel):
     def __str__(self):
         return f"Distribution of Lead {self.lead.id} to {self.provider}"
 
+    def mark_as_viewed(self):
+        """Mark distribution as viewed and update timestamp"""
+        if not self.viewed_at:
+            self.viewed_at = timezone.now()
+            if self.status == 'sent':
+                self.status = 'viewed'
+            self.save(update_fields=['viewed_at', 'status', 'updated_at'])
+
+    def mark_as_responded(self, message, quoted_price):
+        """Mark distribution as responded and update timestamps"""
+        self.response_message = message
+        self.quoted_price = quoted_price
+        self.responded_at = timezone.now()
+        self.status = 'responded'
+        self.save(update_fields=['response_message', 'quoted_price', 'responded_at', 'status', 'updated_at'])
+        
+        # Also update the lead status to contacted if it's currently pending
+        if self.lead.status == 'pending':
+            self.lead.status = 'contacted'
+            self.lead.save(update_fields=['status', 'updated_at'])
+
 
 class LeadInteraction(BaseModel):
     INTERACTION_TYPES = [

@@ -10,7 +10,6 @@ Message: "{{ message }}"
 
 Tap to view full details and respond quickly!
 
-<!-- templates/notifications/app/subscription_expiry.txt -->
 ⚠️ Subscription Expiring Soon
 
 Your {{ plan_name }} subscription expires in {{ days_left }} days ({{ end_date }}).

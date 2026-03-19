@@ -44,10 +44,28 @@ class SubscriptionPlanSerializer(serializers.ModelSerializer):
 
 class CreditTransactionSerializer(serializers.ModelSerializer):
     """Serializer for credit transactions"""
+    transaction_type = serializers.SerializerMethodField()
+    description = serializers.SerializerMethodField()
+    created_at = serializers.DateTimeField(source='timestamp', read_only=True)
+
     class Meta:
         model = CreditTransaction
-        fields = ['id', 'action', 'amount', 'reference_id', 'metadata', 'timestamp']
-        read_only_fields = ['id', 'timestamp']
+        fields = ['id', 'action', 'amount', 'reference_id', 'metadata', 'timestamp', 'created_at', 'transaction_type', 'description']
+        read_only_fields = ['id', 'timestamp', 'created_at']
+
+    def get_transaction_type(self, obj):
+        return "debit" if obj.amount < 0 else "credit"
+
+    def get_description(self, obj):
+        # Convert action choice to readable description
+        action_map = {
+            'impression': 'Search Impression',
+            'view_contact': 'Contact Detail View',
+            'valid_lead': 'Lead Generation',
+            'recharge': 'Wallet Recharge',
+            'bonus': 'Special Bonus'
+        }
+        return action_map.get(obj.action, obj.action.capitalize())
 
 
 class CreditWalletSerializer(serializers.ModelSerializer):
