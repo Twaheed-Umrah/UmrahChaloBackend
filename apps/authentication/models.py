@@ -4,7 +4,17 @@ from django.utils import timezone
 from django.core.validators import RegexValidator
 from django.conf import settings
 from apps.core.models import BaseModel, UserRole
+from django.core.exceptions import ValidationError
+import uuid
 from datetime import timedelta
+
+def validate_file_size(value):
+    filesize = value.size
+    
+    if filesize > 5242880: # 5MB limit
+        raise ValidationError("The maximum file size that can be uploaded is 5MB")
+    else:
+        return value
 
 class User(AbstractUser):
     """
@@ -227,7 +237,7 @@ class ServiceProviderProfile(models.Model):
     business_name = models.CharField(max_length=255, null=True, blank=True)
     business_type = models.CharField(max_length=50, choices=BUSINESS_TYPES, null=True, blank=True)
     business_description = models.TextField(blank=True)
-    business_logo = models.ImageField(upload_to='business_logos/', null=True, blank=True)
+    business_logo = models.ImageField(upload_to='business_logos/', null=True, blank=True, validators=[validate_file_size])
     
     # Contact Information
     business_email = models.EmailField(null=True, blank=True)
@@ -476,3 +486,27 @@ class UserActivity(models.Model):
     
     def __str__(self):
         return f"{self.user.email} - {self.get_activity_type_display()}"
+
+
+class ProviderMedia(models.Model):
+    """
+    Model to handle multiple images and videos for a Service Provider
+    """
+    MEDIA_TYPES = (
+        ('image', 'Image'),
+        ('video', 'Video'),
+    )
+    
+    provider = models.ForeignKey(ServiceProviderProfile, on_delete=models.CASCADE, related_name='media')
+    media_type = models.CharField(max_length=10, choices=MEDIA_TYPES)
+    file = models.FileField(upload_to='provider_media/', validators=[validate_file_size])
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'provider_media'
+        verbose_name = 'Provider Media'
+        verbose_name_plural = 'Provider Media'
+        ordering = ['-created_at']
+        
+    def __str__(self):
+        return f"{self.provider.business_name or self.provider.user.email} - {self.get_media_type_display()}"

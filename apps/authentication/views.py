@@ -16,7 +16,7 @@ from datetime import timedelta
 import uuid
 from .models import (
     User, OTPVerification, LoginAttempt, UserSession,
-    ServiceProviderProfile, SavedPackage, UserActivity
+    ServiceProviderProfile, SavedPackage, UserActivity, ProviderMedia
 )
 from .serializers import (
     UserRegistrationSerializer, UserLoginSerializer, OTPLoginSerializer,
@@ -26,7 +26,7 @@ from .serializers import (
     ServiceProviderListSerializer, UserActivitySerializer, SavedPackageSerializer,
     LoginAttemptSerializer, UserSessionSerializer, EmailVerificationSerializer,
     PhoneVerificationSerializer, UserManagementSerializer, BulkUserActionSerializer,LocationUpdateSerializer,PasswordSetNewSerializer,
-    PasswordResetVerifyOTPSerializer
+    PasswordResetVerifyOTPSerializer, ProviderMediaSerializer
 )
 import logging
 logger = logging.getLogger(__name__)
@@ -663,6 +663,16 @@ class ServiceProviderRegistrationView(generics.CreateAPIView):
         return Response(response_data, status=status.HTTP_201_CREATED)
 
 
+class ServiceProviderPublicDetailView(generics.RetrieveAPIView):
+    """
+    API endpoint to retrieve a service provider's public profile by ID
+    """
+    queryset = ServiceProviderProfile.objects.filter(is_active=True)
+    serializer_class = ServiceProviderProfileSerializer
+    permission_classes = [permissions.AllowAny]
+    lookup_field = 'id'
+
+
 class ServiceProviderListView(generics.ListAPIView):
     """
     API endpoint to list service providers
@@ -701,6 +711,12 @@ class ServiceProviderListView(generics.ListAPIView):
                 Q(business_name__icontains=search) |
                 Q(business_description__icontains=search)
             )
+        
+        # Filter by featured status
+        is_featured = self.request.query_params.get('is_featured')
+        if is_featured:
+            is_featured_bool = is_featured.lower() == 'true'
+            queryset = queryset.filter(is_featured=is_featured_bool)
         
         # Filter by location proximity (if latitude and longitude provided)
         lat = self.request.query_params.get('latitude')
@@ -830,6 +846,52 @@ class ServiceProviderDetailView(generics.RetrieveUpdateDestroyAPIView):
             description='Service provider profile deactivated',
             ip_address=get_client_ip(self.request)
         )
+
+class ProviderMediaUploadView(generics.CreateAPIView):
+    """
+    API endpoint for service providers to upload media (images/videos)
+    """
+    serializer_class = ProviderMediaSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def perform_create(self, serializer):
+        provider = getattr(self.request.user, 'service_provider_profile', None)
+        if not provider:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("User is not a service provider.")
+        
+        serializer.save(provider=provider)
+        
+        UserActivity.objects.create(
+            user=self.request.user,
+            activity_type='profile_update',
+            description='Service provider media uploaded',
+            ip_address=get_client_ip(self.request)
+        )
+
+class ProviderMediaDeleteView(generics.DestroyAPIView):
+    """
+    API endpoint for service providers to delete media
+    """
+    serializer_class = ProviderMediaSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        provider = getattr(self.request.user, 'service_provider_profile', None)
+        if not provider:
+            return ProviderMedia.objects.none()
+        return ProviderMedia.objects.filter(provider=provider)
+        
+    def perform_destroy(self, instance):
+        instance.delete()
+        
+        UserActivity.objects.create(
+            user=self.request.user,
+            activity_type='profile_update',
+            description='Service provider media deleted',
+            ip_address=get_client_ip(self.request)
+        )
+
 # Activity and Tracking Views
 class UserActivityListView(generics.ListAPIView):
     """

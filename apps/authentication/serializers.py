@@ -7,7 +7,7 @@ import uuid
 from django.utils import timezone
 from .models import (
     User, OTPVerification, LoginAttempt, UserSession, 
-    ServiceProviderProfile, SavedPackage, UserActivity
+    ServiceProviderProfile, SavedPackage, UserActivity, ProviderMedia
 )
 from apps.core.utils import generate_otp, send_otp
 import re
@@ -451,6 +451,15 @@ class ServiceProviderRegistrationSerializer(serializers.ModelSerializer):
         # Create profile with whatever remaining data (might be empty business info)
         return ServiceProviderProfile.objects.create(user=user, **validated_data)
 
+class ProviderMediaSerializer(serializers.ModelSerializer):
+    """
+    Serializer for Provider Media (images and videos)
+    """
+    class Meta:
+        model = ProviderMedia
+        fields = ['id', 'media_type', 'file', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
 class ServiceProviderProfileSerializer(serializers.ModelSerializer):
     """
     Service Provider profile serializer
@@ -458,6 +467,7 @@ class ServiceProviderProfileSerializer(serializers.ModelSerializer):
     user = UserProfileSerializer(read_only=True)
     verification_status_display = serializers.CharField(source='get_verification_status_display', read_only=True)
     business_type_display = serializers.CharField(source='get_business_type_display', read_only=True)
+    media = ProviderMediaSerializer(many=True, read_only=True)
     
     class Meta:
         model = ServiceProviderProfile
@@ -471,7 +481,7 @@ class ServiceProviderProfileSerializer(serializers.ModelSerializer):
             'verification_status_display', 'verification_notes', 'verified_by',
             'verified_at', 'total_packages', 'total_leads', 'total_bookings',
             'average_rating', 'total_reviews', 'is_active', 'is_featured',
-            'created_at', 'updated_at'
+            'media', 'created_at', 'updated_at'
         ]
         read_only_fields = [
             'id', 'verification_status', 'verification_notes', 'verified_by',
@@ -503,6 +513,7 @@ class ServiceProviderListSerializer(serializers.ModelSerializer):
     government_id_document = serializers.FileField(read_only=True)
     gst_certificate = serializers.FileField(read_only=True)
     trade_license_document = serializers.FileField(read_only=True)
+    media = ProviderMediaSerializer(many=True, read_only=True)
 
     class Meta:
         model = ServiceProviderProfile
@@ -514,12 +525,14 @@ class ServiceProviderListSerializer(serializers.ModelSerializer):
             'business_state',
             'verification_status',
             'average_rating',
+            'business_logo',
             'business_email',
             'business_phone',
             'total_packages',
             'total_reviews',
             'is_active',
             'is_featured',
+            'media',
             'created_at','government_id_type','government_id_number','government_id_document',
             'gst_number',
             'gst_certificate',
