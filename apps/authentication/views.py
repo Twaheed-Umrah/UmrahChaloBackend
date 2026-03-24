@@ -1941,7 +1941,7 @@ def get_nearby_providers(request):
     try:
         user_lat = float(request.GET.get('latitude'))
         user_lng = float(request.GET.get('longitude'))
-        radius = float(request.GET.get('radius', 10))
+        radius = float(request.GET.get('radius', 30))
         pincode = request.GET.get('pincode') # Optional pincode for exact area match
     except (TypeError, ValueError):
         return Response({
@@ -2055,7 +2055,7 @@ def get_nearby_providers(request):
     
     # Serialize results
     from .serializers import ServiceProviderListSerializer
-    serializer = ServiceProviderListSerializer(providers_to_show, many=True)
+    serializer = ServiceProviderListSerializer(providers_to_show, many=True, context={'request': request})
     
     return Response({
         'message': f'Found {total_count} providers within {radius}km',
