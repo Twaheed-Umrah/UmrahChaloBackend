@@ -321,8 +321,8 @@ EMAIL_HOST_USER = 'hajjumrahservice072@gmail.com'
 EMAIL_HOST_PASSWORD = 'pjrnsuqeoqnglohc'  
 
 # File Upload Configuration
-FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024  # 5MB
-DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024  # 50MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024  # 50MB
 
 # AWS S3 Configuration (Optional)
 USE_S3 = config('USE_S3', default=False, cast=bool)
@@ -415,8 +415,8 @@ DJANGO_CKEDITOR_5_CONFIGS = {
 # Phone Number Configuration
 PHONENUMBER_DEFAULT_REGION = 'IN'
 PHONENUMBER_DEFAULT_FORMAT = 'NATIONAL'
-FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
-DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024  # 50MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024  # 50MB
 # Create logs directory if it doesn't exist
 os.makedirs(BASE_DIR / 'logs', exist_ok=True)
 
