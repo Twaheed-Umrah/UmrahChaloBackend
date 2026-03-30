@@ -1941,17 +1941,33 @@ def get_nearby_providers(request):
     try:
         user_lat = float(request.GET.get('latitude'))
         user_lng = float(request.GET.get('longitude'))
-        radius = float(request.GET.get('radius', 30))
+        radius = float(request.GET.get('radius', 100))
         pincode = request.GET.get('pincode') # Optional pincode for exact area match
     except (TypeError, ValueError):
         return Response({
             'error': 'Latitude, longitude, and radius are required and must be valid numbers.'
         }, status=status.HTTP_400_BAD_REQUEST)
 
-    lat_range = radius / 111.0
-    lng_range = radius / (111.0 * abs(user_lat))
+    import math
 
-    # Basic filtering
+    def haversine(lat1, lon1, lat2, lon2):
+        # Calculate Haversine distance exactly in kilometers
+        lat1, lon1, lat2, lon2 = float(lat1), float(lon1), float(lat2), float(lon2)
+        R = 6371.0 # Earth radius in km
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = (math.sin(dlat / 2)**2 +
+             math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
+             math.sin(dlon / 2)**2)
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        return R * c
+
+    # Create a FAST generalized square boundary map
+    lat_range = radius / 111.0
+    # Corrected fix: Calculate longitude radius properly using cosine
+    lng_range = radius / (111.32 * math.cos(math.radians(user_lat)))
+
+    # Step 1: Fast Bounding Box Filter
     queryset = ServiceProviderProfile.objects.filter(
         is_active=True,
         verification_status='verified',
@@ -1973,8 +1989,13 @@ def get_nearby_providers(request):
     from datetime import datetime
     import hashlib
 
-    # 1. Base list
-    provider_list = list(queryset)
+    # Step 2: Accurate Haversine Distance Filter (creates a Circle)
+    provider_list = []
+    for provider in queryset:
+        distance = haversine(user_lat, user_lng, provider.user.latitude, provider.user.longitude)
+        if distance <= radius:
+            provider.distance = distance  # Allows frontend or future use of accurate distance if needed
+            provider_list.append(provider)
     current_hour_str = datetime.now().strftime("%Y-%m-%d-%H")
     
     def get_ranking_info(provider):
@@ -2035,12 +2056,12 @@ def get_nearby_providers(request):
     # Sort the list
     ordered_providers = sorted(provider_list, key=get_ranking_info)
 
-    # Get total count before pagination
-    total_count = queryset.count()
+    # Get total count before pagination (use the accurate circular list)
+    total_count = len(ordered_providers)
     
-    # Apply limit if needed
+    # Apply limit if needed (slice the newly sorted list)
     limit = int(request.GET.get('limit', 20))
-    providers_to_show = list(queryset[:limit])
+    providers_to_show = ordered_providers[:limit]
 
     # Deduct impression credits asynchronously (non-blocking)
     # This ensures the API response is fast regardless of credit processing time
