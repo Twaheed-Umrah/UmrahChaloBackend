@@ -514,6 +514,7 @@ class ServiceProviderListSerializer(serializers.ModelSerializer):
     gst_certificate = serializers.FileField(read_only=True)
     trade_license_document = serializers.FileField(read_only=True)
     media = ProviderMediaSerializer(many=True, read_only=True)
+    active_plan = serializers.SerializerMethodField()
 
     class Meta:
         model = ServiceProviderProfile
@@ -533,12 +534,22 @@ class ServiceProviderListSerializer(serializers.ModelSerializer):
             'is_active',
             'is_featured',
             'media',
+            'active_plan',
             'created_at','government_id_type','government_id_number','government_id_document',
             'gst_number',
             'gst_certificate',
             'trade_license_number',
             'trade_license_document',
         ]
+
+    def get_active_plan(self, obj):
+        sub = obj.get_active_subscription()
+        if sub and sub.plan:
+            return {
+                'plan_name': sub.plan.name,
+                'plan_type': sub.plan.plan_type,
+            }
+        return None
 
 # Activity and Tracking Serializers
 class UserActivitySerializer(serializers.ModelSerializer):
