@@ -704,12 +704,16 @@ class ServiceProviderListView(generics.ListAPIView):
         if state:
             queryset = queryset.filter(business_state__icontains=state)
         
-        # Search by business name
+        # Search by business name, city, state, address, or pincode
         search = self.request.query_params.get('search')
         if search:
             queryset = queryset.filter(
                 Q(business_name__icontains=search) |
-                Q(business_description__icontains=search)
+                Q(business_description__icontains=search) |
+                Q(business_city__icontains=search) |
+                Q(business_state__icontains=search) |
+                Q(business_address__icontains=search) |
+                Q(business_pincode__icontains=search)
             )
         
         # Filter by featured status
