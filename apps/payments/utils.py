@@ -4,6 +4,7 @@ import hmac
 import json
 import logging
 from django.conf import settings
+from django.utils import timezone
 from decimal import Decimal
 from .models import Payment, PaymentRefund, PaymentTransaction, PaymentWebhook
 
@@ -19,8 +20,8 @@ class PaymentGatewayManager:
         if payment_method.type == 'razorpay':
             self.client = razorpay.Client(
                 auth=(
-                    settings.RAZORPAY_KEY_ID or 'rzp_test_ZI5G0k0dQJfr79',
-                    settings.RAZORPAY_KEY_SECRET or 'lZUttTsMhykdSWawNeXGC5nG'
+                    settings.RAZORPAY_KEY_ID or 'rzp_live_SbhF1RJDJyDNdv',
+                    settings.RAZORPAY_KEY_SECRET or '7Ox6LW8kzLycPbStojMiROWB'
                 )
             )
     
@@ -80,7 +81,7 @@ class PaymentGatewayManager:
         try:
             # Verify signature
             generated_signature = hmac.new(
-                settings.RAZORPAY_KEY_SECRET.encode() or b'lZUttTsMhykdSWawNeXGC5nG',
+                settings.RAZORPAY_KEY_SECRET.encode() or b'7Ox6LW8kzLycPbStojMiROWB',
                 f'{order_id}|{payment_id}'.encode(),
                 hashlib.sha256
             ).hexdigest()

@@ -91,12 +91,13 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     latitude = serializers.DecimalField(max_digits=10, decimal_places=8, required=False, allow_null=True)
     longitude = serializers.DecimalField(max_digits=11, decimal_places=8, required=False, allow_null=True)
     location_address = serializers.CharField(max_length=500, required=False, allow_blank=True)
+    verification_token = serializers.CharField(write_only=True, required=False)
     
     class Meta:
         model = User
         fields = [
             'email', 'phone', 'password', 'confirm_password', 'user_type', 
-            'full_name', 'latitude', 'longitude', 'location_address'
+            'full_name', 'latitude', 'longitude', 'location_address', 'verification_token'
         ]
         extra_kwargs = {
             'password': {'write_only': True},
@@ -243,21 +244,38 @@ class PasswordResetSerializer(serializers.Serializer):
     """
     Step 1: Request password reset OTP
     """
-    email = serializers.EmailField()
+    email = serializers.EmailField(required=False)
+    phone = serializers.CharField(required=False)
     
-    def validate_email(self, value):
-        return value
+    def validate(self, attrs):
+        if not attrs.get('email') and not attrs.get('phone'):
+            raise serializers.ValidationError("Either email or phone is required.")
+        return attrs
 
 
 class PasswordResetVerifyOTPSerializer(serializers.Serializer):
     """
     Step 2: Verify password reset OTP
     """
-    email = serializers.EmailField()
+    email = serializers.EmailField(required=False)
+    phone = serializers.CharField(required=False)
     otp = serializers.CharField(max_length=6)
     
     def validate(self, attrs):
         email = attrs.get('email')
+        phone = attrs.get('phone')
+        otp = attrs.get('otp')
+
+        if not email and not phone:
+            raise serializers.ValidationError("Either email or phone is required.")
+
+        try:
+            if email:
+                user = User.objects.get(email=email)
+            else:
+                user = User.objects.get(phone=phone)
+        except User.DoesNotExist:
+            raise serializers.ValidationError("User not found.")
         otp = attrs.get('otp')
         
         try:
@@ -371,6 +389,7 @@ class ServiceProviderRegistrationSerializer(serializers.ModelSerializer):
     phone = serializers.CharField(write_only=True, required=True)
     password = serializers.CharField(write_only=True, validators=[validate_password])
     confirm_password = serializers.CharField(write_only=True)
+    verification_token = serializers.CharField(write_only=True, required=False)
 
     class Meta:
         model = ServiceProviderProfile
@@ -381,7 +400,7 @@ class ServiceProviderRegistrationSerializer(serializers.ModelSerializer):
             'business_city', 'business_state', 'business_country', 'business_pincode',
             'government_id_type', 'government_id_number', 'government_id_document',
             'gst_number', 'gst_certificate', 'trade_license_number',
-            'trade_license_document'
+            'trade_license_document', 'verification_token'
         ]
         extra_kwargs = {
             'business_name': {'required': False},

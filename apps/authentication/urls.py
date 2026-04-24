@@ -11,6 +11,8 @@ urlpatterns = [
     # Authentication
     path('auth/', include([
         path('register/', views.UserRegistrationView.as_view(), name='user-registration'),
+        path('otp/request/', views.RequestOTPView.as_view(), name='otp-request'),
+        path('otp/verify/', views.VerifyOTPView.as_view(), name='otp-verify'),
         path('login/', views.UserLoginView.as_view(), name='user-login'),
         path('logout/', views.LogoutView.as_view(), name='user-logout'),
         path('location/update/', views.LocationUpdateView.as_view(), name='location-update'),
@@ -19,10 +21,10 @@ urlpatterns = [
         path('token/refresh/', views.CustomTokenRefreshView.as_view(), name='token-refresh'),
     ])),
     
-    # OTP
+    # OTP (Dedicated paths for Login)
     path('otp/', include([
-        path('login/', views.OTPLoginView.as_view(), name='otp-login'),
-        path('verify/', views.OTPVerificationView.as_view(), name='otp-verification'),
+        path('login/', views.RequestOTPView.as_view(), name='otp-login'),
+        path('verify/', views.VerifyOTPView.as_view(), name='otp-verification'),
         path('resend/', views.resend_otp, name='resend-otp'),
     ])),
     

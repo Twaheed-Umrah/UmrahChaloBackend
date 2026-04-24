@@ -32,22 +32,192 @@ import logging
 logger = logging.getLogger(__name__)
 from apps.core.utils import send_otp, generate_otp, get_client_ip, get_user_agent
 from .utils import send_email_otp,send_sms_otp
+from django.core.cache import cache
 from apps.core.pagination import CustomPagination
 from apps.core.permissions import IsSuperAdmin, IsProviderOrReadOnly
 from apps.notifications.services import NotificationService
 
+import uuid
+import time
+from redis.exceptions import ConnectionError as RedisConnectionError
 # Base Authentication Views
+
+class RequestOTPView(APIView):
+    """
+    Unified API endpoint to request OTP with session binding (request_id)
+    """
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        try:
+            email = request.data.get('email')
+            phone = request.data.get('phone')
+            purpose = request.data.get('purpose', 'registration') # registration, password_reset, login
+            
+            if not email and not phone:
+                return Response({"error": "Email or Phone number is required"}, status=status.HTTP_400_BAD_REQUEST)
+            
+            identifier = email if email else phone
+            send_method = "email" if email else "sms"
+            
+            # Validation based on purpose
+            user_exists = User.objects.filter(email=identifier).exists() if email else User.objects.filter(phone=identifier).exists()
+            
+            if purpose == 'registration' and user_exists:
+                return Response({"error": "User with this identifier already exists."}, status=status.HTTP_400_BAD_REQUEST)
+            elif purpose in ['password_reset', 'login'] and not user_exists:
+                if purpose == 'login':
+                    return Response({"error": "User with this identifier does not exist."}, status=status.HTTP_404_NOT_FOUND)
+                # Anti-enumeration for password reset
+                return Response({"message": "If this account exists, an OTP will be sent.", "request_id": str(uuid.uuid4())}, status=status.HTTP_200_OK)
+                
+            # Rate limiting: 5 OTPs per minute
+            rate_limit_key = f"otp_rate_limit_{identifier}"
+            request_count = cache.get(rate_limit_key, 0)
+            
+            if request_count >= 5:
+                return Response({"error": "Too many OTP requests. Please try again in a minute."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+                
+            otp_code = generate_otp()
+            request_id = str(uuid.uuid4())
+            
+            # Store session in Redis
+            session_data = {
+                "identifier": identifier,
+                "otp": otp_code,
+                "purpose": purpose,
+                "attempts": 0,
+                "created_at": time.time()
+            }
+            cache.set(f"otp_session_{request_id}", session_data, timeout=600) # 10 mins
+            
+            # Increment request count
+            cache.set(rate_limit_key, request_count + 1, timeout=60)
+            
+            try:
+                if send_method == "email":
+                    send_otp(identifier, otp_code, purpose)
+                else:
+                    send_sms_otp(identifier, otp_code, purpose)
+                    
+                return Response({
+                    "message": "OTP sent successfully.",
+                    "request_id": request_id,
+                    "otp_sent": True
+                }, status=status.HTTP_200_OK)
+            except Exception as e:
+                logger.error(f"Failed to send OTP to {identifier}: {str(e)}")
+                return Response({"error": "Failed to send OTP"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except (RedisConnectionError, Exception) as e:
+            logger.error(f"Redis Connection Error: {str(e)}")
+            return Response({"error": "Service temporarily unavailable. Please ensure Redis is running."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+class VerifyOTPView(APIView):
+    """
+    Unified API endpoint to verify OTP with session binding
+    """
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        try:
+            request_id = request.data.get('request_id')
+            otp = request.data.get('otp')
+            
+            if not request_id or not otp:
+                return Response({"error": "Request ID and OTP are required"}, status=status.HTTP_400_BAD_REQUEST)
+                
+            session_key = f"otp_session_{request_id}"
+            session_data = cache.get(session_key)
+            
+            if not session_data:
+                return Response({"error": "Session expired or invalid Request ID"}, status=status.HTTP_400_BAD_REQUEST)
+                
+            # Attempt limiting
+            if session_data.get('attempts', 0) >= 3:
+                cache.delete(session_key)
+                return Response({"error": "Too many failed attempts. Please request a new OTP."}, status=status.HTTP_400_BAD_REQUEST)
+                
+            if str(session_data['otp']) != str(otp):
+                session_data['attempts'] = session_data.get('attempts', 0) + 1
+                cache.set(session_key, session_data, timeout=600)
+                return Response({"error": f"Invalid OTP. {3 - session_data['attempts']} attempts remaining."}, status=status.HTTP_400_BAD_REQUEST)
+                 
+            identifier = session_data['identifier']
+            purpose = session_data['purpose']
+            
+            # Handle Login purpose immediately
+            if purpose == 'login':
+                try:
+                    user = User.objects.get(email=identifier) if "@" in identifier else User.objects.get(phone=identifier)
+                    cache.delete(session_key)
+                    
+                    from rest_framework_simplejwt.tokens import RefreshToken
+                    refresh = RefreshToken.for_user(user)
+                    
+                    return Response({
+                        "message": "Login successful.",
+                        "access_token": str(refresh.access_token),
+                        "refresh_token": str(refresh),
+                        "user": UserProfileSerializer(user).data
+                    }, status=status.HTTP_200_OK)
+                except User.DoesNotExist:
+                    return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+            
+            # Set a verification flag bound to the request_id
+            verified_data = {
+                "identifier": identifier,
+                "purpose": purpose,
+                "verified_at": time.time()
+            }
+            cache.set(f"verified_session_{request_id}", verified_data, timeout=600)
+            
+            # CRITICAL: Delete OTP session after verification to prevent reuse
+            cache.delete(session_key)
+            
+            return Response({
+                "message": "Verified successfully.",
+                "request_id": request_id,
+                "verified": True
+            }, status=status.HTTP_200_OK)
+        except (RedisConnectionError, Exception) as e:
+            logger.error(f"Redis Connection Error: {str(e)}")
+            return Response({"error": "Service temporarily unavailable. Please ensure Redis is running."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
 class UserRegistrationView(generics.CreateAPIView):
     """
-    API endpoint for user registration
+    Final step for User registration with strict session validation
     """
-    queryset = User.objects.all()
     serializer_class = UserRegistrationSerializer
     permission_classes = [AllowAny]
 
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+    def post(self, request, *args, **kwargs):
+        try:
+            phone = request.data.get('phone')
+            request_id = request.data.get('request_id')
+            
+            if not phone or not request_id:
+                return Response({"error": "Phone number and Request ID are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Validate verified session
+            verified_key = f"verified_session_{request_id}"
+            verified_data = cache.get(verified_key)
+            
+            if not verified_data:
+                return Response({"error": "Session expired or not verified. Please verify OTP first."}, status=status.HTTP_400_BAD_REQUEST)
+                
+            # Strict identifier and purpose binding
+            if verified_data['identifier'] != phone or verified_data['purpose'] != 'registration':
+                return Response({"error": "Invalid session or identifier mismatch."}, status=status.HTTP_400_BAD_REQUEST)
+                 
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            
+            # Clear verified session after use
+            cache.delete(verified_key)
+        except (RedisConnectionError, Exception) as e:
+            logger.error(f"Redis Connection Error: {str(e)}")
+            return Response({"error": "Service temporarily unavailable. Please ensure Redis is running."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
         user = serializer.save()
 
         # Log user activity
@@ -63,15 +233,16 @@ class UserRegistrationView(generics.CreateAPIView):
                 }
             )
         except Exception as e:
-            print(f"Failed to log activity: {e}")
+            logger.error(f"Failed to log activity: {e}")
+
         try:
-                NotificationService.send_welcome_notification(user)
-                logger.info(f"Welcome notification sent synchronously to {user.email}")
+            NotificationService.send_welcome_notification(user)
+            logger.info(f"Welcome notification sent to {user.email}")
         except Exception as sync_error:
-                 logger.error(f"Failed to send welcome notification synchronously: {sync_error}")
+            logger.error(f"Failed to send welcome notification: {sync_error}")
                  
         response_data = {
-            'message': 'User registered successfully. Please check your email for verification.',
+            'message': 'User registered successfully.',
             'user_id': str(user.id),
             'username': user.username,
             'email': user.email
@@ -148,91 +319,124 @@ class OTPLoginView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = OTPLoginSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        email = serializer.validated_data.get('email')
-        phone = serializer.validated_data.get('phone')
-
         try:
-            user = User.objects.get(email=email) if email else User.objects.get(phone=phone)
-        except User.DoesNotExist:
-            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+            serializer = OTPLoginSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
 
-        otp = generate_otp()
-        OTPVerification.objects.create(
-            user=user,
-            otp=otp,
-            purpose='login',
-            expires_at=timezone.now() + timedelta(minutes=5)
-        )
+            email = serializer.validated_data.get('email')
+            phone = serializer.validated_data.get('phone')
+            identifier = email if email else phone
 
-        if email:
-            send_email_otp(email, otp, "login")
-        else:
-            send_sms_otp(phone, otp)
+            # Rate limiting: 5 OTPs per minute
+            rate_limit_key = f"otp_rate_limit_{identifier}"
+            request_count = cache.get(rate_limit_key, 0)
+            
+            if request_count >= 5:
+                return Response({"error": "Too many OTP requests. Please try again in a minute."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
-        return Response({"message": "OTP sent successfully"}, status=status.HTTP_200_OK)
+            try:
+                user = User.objects.get(email=email) if email else User.objects.get(phone=phone)
+            except User.DoesNotExist:
+                return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
+            otp_code = generate_otp()
+            request_id = str(uuid.uuid4())
+            
+            # Store session in Redis (using the same secure logic as RequestOTPView)
+            session_data = {
+                "identifier": identifier,
+                "otp": otp_code,
+                "purpose": "login",
+                "attempts": 0,
+                "created_at": time.time()
+            }
+            cache.set(f"otp_session_{request_id}", session_data, timeout=600)
+            
+            # Increment rate limit counter
+            cache.set(rate_limit_key, request_count + 1, timeout=60)
+
+            try:
+                if email:
+                    send_email_otp(email, otp_code, "login")
+                else:
+                    send_sms_otp(phone, otp_code)
+                    
+                return Response({
+                    "message": "OTP sent successfully.",
+                    "request_id": request_id,
+                    "otp_sent": True
+                }, status=status.HTTP_200_OK)
+            except Exception as e:
+                logger.error(f"Failed to send OTP to {identifier}: {str(e)}")
+                return Response({"error": "Failed to send OTP"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except (RedisConnectionError, Exception) as e:
+            logger.error(f"Redis Error in OTPLogin: {str(e)}")
+            return Response({"error": "Service temporarily unavailable. Please ensure Redis is running."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
 class OTPVerificationView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        serializer = OTPVerificationSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        email = serializer.validated_data.get("email")
-        phone = serializer.validated_data.get("phone")
-        otp = serializer.validated_data["otp"]
-        purpose = serializer.validated_data["purpose"].strip().lower()
-
         try:
-            user = User.objects.get(email=email) if email else User.objects.get(phone=phone)
-        except User.DoesNotExist:
-            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
-
-        otp_obj = OTPVerification.objects.filter(
-            user=user, otp=otp, purpose__iexact=purpose, is_used=False
-        ).last()
-
-        if not otp_obj or otp_obj.is_expired():
-            return Response({"error": "Invalid or expired OTP"}, status=status.HTTP_400_BAD_REQUEST)
-
-        otp_obj.is_used = True
-        otp_obj.save()
-
-        # Generate JWT Tokens
-        refresh = RefreshToken.for_user(user)
-        access_token = str(refresh.access_token)
-
-        # Handle IP safely
-        ip_address = request.META.get('HTTP_X_FORWARDED_FOR')
-        if ip_address:
-            ip_address = ip_address.split(',')[0].strip()
-        else:
-            ip_address = request.META.get('REMOTE_ADDR', '0.0.0.0')
-
-        # Create Session
-        UserSession.objects.create(
-            user=user,
-            session_key=str(uuid.uuid4()),
-            device_info=request.META.get('HTTP_USER_AGENT', ''),
-            ip_address=ip_address
-        )
-
-        return Response({
-            "message": "OTP verified successfully",
-            "access_token": access_token,
-            "refresh_token": str(refresh),
-            "user": UserProfileSerializer(user).data
-        }, status=status.HTTP_200_OK)
+            request_id = request.data.get('request_id')
+            otp = request.data.get('otp')
+            
+            if not request_id or not otp:
+                return Response({"error": "Request ID and OTP are required"}, status=status.HTTP_400_BAD_REQUEST)
+                
+            session_key = f"otp_session_{request_id}"
+            session_data = cache.get(session_key)
+            
+            if not session_data or session_data.get('purpose') != 'login':
+                return Response({"error": "Session expired or invalid Request ID"}, status=status.HTTP_400_BAD_REQUEST)
+                
+            # Attempt limiting (3 attempts)
+            attempts = session_data.get('attempts', 0)
+            if attempts >= 3:
+                cache.delete(session_key)
+                return Response({"error": "Too many failed attempts. Please request a new OTP."}, status=status.HTTP_400_BAD_REQUEST)
+                
+            if str(session_data['otp']) != str(otp):
+                session_data['attempts'] = attempts + 1
+                cache.set(session_key, session_data, timeout=600)
+                return Response({"error": f"Invalid OTP. {3 - session_data['attempts']} attempts remaining."}, status=status.HTTP_400_BAD_REQUEST)
+                 
+            identifier = session_data['identifier']
+            
+            try:
+                user = User.objects.get(email=identifier) if "@" in identifier else User.objects.get(phone=identifier)
+                cache.delete(session_key)
+                
+                from rest_framework_simplejwt.tokens import RefreshToken
+                refresh = RefreshToken.for_user(user)
+                
+                # Log login
+                ip_address = get_client_ip(request)
+                UserActivity.objects.create(
+                    user=user,
+                    activity_type='login',
+                    description='User logged in via OTP',
+                    ip_address=ip_address
+                )
+                
+                return Response({
+                    "message": "Login successful.",
+                    "access_token": str(refresh.access_token),
+                    "refresh_token": str(refresh),
+                    "user": UserProfileSerializer(user).data
+                }, status=status.HTTP_200_OK)
+            except User.DoesNotExist:
+                return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+        except (RedisConnectionError, Exception) as e:
+            logger.error(f"Redis Error in OTPVerification: {str(e)}")
+            return Response({"error": "Service temporarily unavailable. Please ensure Redis is running."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
 # views.py - Replace PasswordResetView, PasswordResetConfirmView with these
 
 class PasswordResetView(APIView):
     """
-    Step 1: Request password reset OTP
+    Step 1: Request password reset OTP (Accepts email or phone)
     """
     permission_classes = [AllowAny]
     
@@ -240,18 +444,24 @@ class PasswordResetView(APIView):
         serializer = PasswordResetSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        email = serializer.validated_data['email']
+        email = serializer.validated_data.get('email')
+        phone = serializer.validated_data.get('phone')
         
         try:
-            user = User.objects.get(email=email)
+            if email:
+                user = User.objects.get(email=email)
+                target = email
+                send_method = "email"
+            else:
+                user = User.objects.get(phone=phone)
+                target = phone
+                send_method = "sms"
         except User.DoesNotExist:
-            # Security best practice: Don't reveal if user exists
-            logger.warning(f"Password reset requested for non-existent email: {email}")
             return Response({
-                'message': 'If this email exists in our system, you will receive a password reset OTP.'
+                'message': 'If this account exists, you will receive a password reset OTP.'
             }, status=status.HTTP_200_OK)
         
-        # Check rate limiting (prevent abuse)
+        # Rate limiting
         recent_attempts = OTPVerification.objects.filter(
             user=user,
             purpose='password_reset',
@@ -259,43 +469,26 @@ class PasswordResetView(APIView):
         ).count()
         
         if recent_attempts >= 3:
-            return Response({
-                'error': 'Too many reset attempts. Please try again later.'
-            }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            return Response({'error': 'Too many attempts.'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
         
-        # Generate OTP
         otp = generate_otp()
         expires_at = timezone.now() + timedelta(minutes=10)
         
-        # Create OTP record
         otp_obj = OTPVerification.objects.create(
-            user=user,
-            otp=otp,
-            purpose='password_reset',
-            expires_at=expires_at
+            user=user, otp=otp, purpose='password_reset', expires_at=expires_at
         )
         
-        # Send OTP
         try:
-            send_otp(email, otp, 'password_reset')
-            logger.info(f"Password reset OTP sent to {email}")
+            if send_method == "email":
+                send_otp(target, otp, 'password_reset')
+            else:
+                send_sms_otp(target, otp, 'password_reset')
+            logger.info(f"Reset OTP sent to {target}")
         except Exception as e:
-            logger.error(f"Failed to send OTP to {email}: {str(e)}")
-            return Response({
-                'error': 'Failed to send OTP. Please try again.'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-        # Log activity
-        UserActivity.objects.create(
-            user=user,
-            activity_type='password_reset_request',
-            description='Password reset requested',
-            ip_address=get_client_ip(request)
-        )
+            return Response({'error': 'Failed to send OTP.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         return Response({
-            'message': 'Password reset OTP sent to your email.',
-            'otp_id': str(otp_obj.id),  # For debugging/verification
+            'message': f'OTP sent to your {send_method}.',
             'expires_in': '10 minutes'
         }, status=status.HTTP_200_OK)
 
@@ -356,93 +549,60 @@ class PasswordResetVerifyOTPView(APIView):
 
 class PasswordSetNewView(APIView):
     """
-    Step 3: Set new password using JWT reset token
+    Step 3: Set new password after OTP verification with session validation
     """
     permission_classes = [AllowAny]
     
     def post(self, request):
-        serializer = PasswordSetNewSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
-        reset_token = serializer.validated_data['reset_token']
-        new_password = serializer.validated_data['new_password']
-        
         try:
-            # Verify the JWT token
-            from rest_framework_simplejwt.tokens import AccessToken
-            from rest_framework_simplejwt.exceptions import TokenError
+            email = request.data.get('email')
+            phone = request.data.get('phone')
+            request_id = request.data.get('request_id')
+            new_password = request.data.get('new_password')
             
-            decoded_token = AccessToken(reset_token)
+            if not new_password or not request_id:
+                return Response({"error": "New password and Request ID are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+            identifier = email if email else phone
             
-            # Validate token purpose
-            if decoded_token.get('purpose') != 'password_reset':
-                raise TokenError('Invalid token purpose')
+            # Validate verified session
+            verified_key = f"verified_session_{request_id}"
+            verified_data = cache.get(verified_key)
             
-            user_id = decoded_token['user_id']
-            otp_id = decoded_token.get('otp_id')
+            if not verified_data:
+                return Response({"error": "Session expired or not verified. Please verify OTP again."}, status=status.HTTP_400_BAD_REQUEST)
+                
+            # Strict identifier and purpose binding
+            if verified_data['identifier'] != identifier or verified_data['purpose'] != 'password_reset':
+                return Response({"error": "Invalid session or identifier mismatch."}, status=status.HTTP_400_BAD_REQUEST)
             
-            user = User.objects.get(id=user_id)
-            
-            # Verify OTP was used for this reset
-            if otp_id:
-                try:
-                    otp_obj = OTPVerification.objects.get(
-                        id=otp_id,
-                        user=user,
-                        purpose='password_reset',
-                        is_used=True
-                    )
-                except OTPVerification.DoesNotExist:
-                    raise TokenError('Invalid reset session')
-            
-        except (TokenError, User.DoesNotExist) as e:
-            logger.warning(f"Invalid reset token: {str(e)}")
-            return Response({
-                'error': 'Invalid or expired reset token. Please request a new password reset.'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Check if token is blacklisted (optional)
-        from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
-        if hasattr(BlacklistedToken, 'objects'):
             try:
-                if BlacklistedToken.objects.filter(token__jti=decoded_token['jti']).exists():
-                    raise TokenError('Token is blacklisted')
-            except:
-                pass
-        
+                if email:
+                    user = User.objects.get(email=email)
+                else:
+                    user = User.objects.get(phone=phone)
+            except User.DoesNotExist:
+                return Response({"error": "User not found."}, status=status.HTTP_400_BAD_REQUEST)
+                
+            # Clear verification flag
+            cache.delete(verified_key)
+        except (RedisConnectionError, Exception) as e:
+            logger.error(f"Redis Connection Error: {str(e)}")
+            return Response({"error": "Service temporarily unavailable. Please ensure Redis is running."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
         # Update password
         user.set_password(new_password)
         user.save()
-        
-        # Blacklist the reset token (prevent reuse)
-        try:
-            from rest_framework_simplejwt.tokens import RefreshToken
-            RefreshToken(reset_token).blacklist()
-        except:
-            pass  # If blacklist app not installed, continue
-        
-        # Invalidate all user sessions (security measure)
-        UserSession.objects.filter(user=user, is_active=True).update(is_active=False)
         
         # Log activity
         UserActivity.objects.create(
             user=user,
             activity_type='password_reset_complete',
-            description='Password reset completed',
+            description='Password reset successfully completed',
             ip_address=get_client_ip(request)
         )
         
-        # Send confirmation email (optional)
-        try:
-            # You can add a confirmation email here
-            logger.info(f"Password reset completed for user: {user.email}")
-        except Exception as e:
-            logger.error(f"Failed to send confirmation email: {str(e)}")
-        
-        return Response({
-            'message': 'Password has been reset successfully',
-            'next_step': 'You can now login with your new password'
-        }, status=status.HTTP_200_OK)
+        return Response({"message": "Password has been reset successfully."}, status=status.HTTP_200_OK)
 
 
 class ChangePasswordView(APIView):
@@ -615,15 +775,39 @@ class CustomTokenRefreshView(TokenRefreshView):
 # Service Provider Views
 class ServiceProviderRegistrationView(generics.CreateAPIView):
     """
-    API endpoint for service provider registration
+    Final step for Service Provider registration with session validation
     """
-    queryset = ServiceProviderProfile.objects.all()
     serializer_class = ServiceProviderRegistrationSerializer
     permission_classes = [AllowAny]
 
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+    def post(self, request, *args, **kwargs):
+        try:
+            phone = request.data.get('phone')
+            request_id = request.data.get('request_id')
+            
+            if not phone or not request_id:
+                return Response({"error": "Phone number and Request ID are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Verify flag
+            verified_key = f"verified_session_{request_id}"
+            verified_data = cache.get(verified_key)
+            
+            if not verified_data:
+                return Response({"error": "Session expired or not verified."}, status=status.HTTP_400_BAD_REQUEST)
+                
+            # Strict identifier and purpose binding
+            if verified_data['identifier'] != phone or verified_data['purpose'] != 'registration':
+                return Response({"error": "Invalid session or identifier mismatch."}, status=status.HTTP_400_BAD_REQUEST)
+                 
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            
+            # Clear flag
+            cache.delete(verified_key)
+        except (RedisConnectionError, Exception) as e:
+            logger.error(f"Redis Connection Error: {str(e)}")
+            return Response({"error": "Service temporarily unavailable. Please ensure Redis is running."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
         provider = serializer.save()
         user = provider.user  # The related user object
 
