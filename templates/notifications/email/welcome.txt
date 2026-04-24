@@ -2,7 +2,7 @@
 
 Assalam-o-Alaikum {{user_name}},
 
-{{#if_provider}}
+{% if user_type == 'Provider' %}
 Welcome to the Umrah Chalo family!
 
 Thank you for joining us. We are honored to be part of your journey in serving pilgrims on their sacred path to the Holy Kaaba.
@@ -48,9 +48,9 @@ Our support team is here to help you succeed:
 "And whoever honors the sacred ordinances of Allah - it is best for him in the sight of his Lord." (Quran 22:30)
 
 May Allah bless your efforts in facilitating the sacred journey of His servants to the Holy House.
-{{/if_provider}}
+{% endif %}
 
-{{#if_pilgrim}}
+{% if user_type == 'Pilgrim' %}
 Your sacred journey awaits!
 
 Thank you for choosing Umrah Chalo. We are honored to help you find the perfect Umrah package for your spiritual journey to the Holy Cities of Makkah and Madinah.
@@ -96,18 +96,18 @@ Our support team is here to guide you:
 "And whoever honors the sacred ordinances of Allah - it is best for him in the sight of his Lord." (Quran 22:30)
 
 May Allah accept your Umrah and grant you a spiritually fulfilling journey to His Holy House.
-{{/if_pilgrim}}
+{% endif %}
 
 ---
-{{#if_provider}}
+{% if user_type == 'Provider' %}
 Your success is our mission
 UMRAH CHALO - Your trusted Umrah partner
-{{/if_provider}}
+{% endif %}
 
-{{#if_pilgrim}}
+{% if user_type == 'Pilgrim' %}
 Your spiritual journey, our commitment
 UMRAH CHALO - Your trusted Umrah companion
-{{/if_pilgrim}}
+{% endif %}
 
 © 2025 Umrah Chalo. All rights reserved.
 Contact: support@umrahchalo.com
