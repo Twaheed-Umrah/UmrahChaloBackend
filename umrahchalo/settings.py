@@ -187,6 +187,14 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'EXCEPTION_HANDLER': 'apps.core.exceptions.custom_exception_handler',
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle'
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '100/minute',
+        'user': '1000/minute'
+    }
 }
 
 # Spectacular settings for API documentation
@@ -258,8 +266,8 @@ SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 SESSION_CACHE_ALIAS = 'default'
 
 # Payment Gateway Configuration
-RAZORPAY_KEY_ID = 'rzp_test_ZI5G0k0dQJfr79'
-RAZORPAY_KEY_SECRET = 'lZUttTsMhykdSWawNeXGC5nG'
+RAZORPAY_KEY_ID = 'rzp_live_SbhF1RJDJyDNdv'
+RAZORPAY_KEY_SECRET = '7Ox6LW8kzLycPbStojMiROWB'
 
 # Optional: Webhook secret for signature validation
 # You can get this from Razorpay dashboard when setting up webhooks

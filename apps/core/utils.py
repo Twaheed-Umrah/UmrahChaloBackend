@@ -328,26 +328,65 @@ def send_bulk_email(recipients: List[str], subject: str, template_name: str, con
 
 # ==================== SMS FUNCTIONS ====================
 
-def send_sms_otp(phone: str, otp: str, purpose: str) -> bool:
-    """Send OTP via SMS"""
+def send_sms_otp(phone: str, otp: str, purpose: str = "login") -> bool:
+    """
+    Sends OTP via SMS (Wappie API) for Indian numbers (+91).
+    For international numbers, placeholder for WhatsApp integration.
+    """
     try:
-        # Log the OTP for development
-        logger.info(f"SMS OTP for {phone}: {otp} (Purpose: {purpose})")
+        # Sanitize phone number and identify country
+        phone_str = str(phone).strip()
         
-        # Implement actual SMS service integration here
-        # Example with Twilio:
-        # from twilio.rest import Client
-        # client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
-        # message = client.messages.create(
-        #     body=f"Your Umrah Chalo OTP is: {otp}. Valid for 5 minutes.",
-        #     from_=settings.TWILIO_PHONE_NUMBER,
-        #     to=phone
-        # )
+        # Determine if Indian number
+        is_india = False
+        clean_phone = phone_str
+        country_code = "+91"
+
+        if phone_str.startswith('+91'):
+            is_india = True
+            clean_phone = phone_str[3:]
+        elif phone_str.startswith('91') and len(phone_str) > 10:
+            is_india = True
+            clean_phone = phone_str[2:]
+        elif len(phone_str) == 10:
+            is_india = True
+            clean_phone = phone_str
         
-        return True
-        
+        if is_india:
+            # Wappie SMS API for India
+            access_token = "1648c635eab1561d92b0d5e4ab2ce19b"
+            sender = "UMCHLO"
+            service = "SI"
+            
+            message_template = "Your OTP for Signup on Umrah Chalo is {otp}. This OTP is valid for 5 minutes. Do not share it with anyone. - Team Umrah Chalo"
+            message = message_template.format(otp=otp)
+            
+            url = "https://apis.wappie.shop/v1/sms/messages"
+            params = {
+                "access_token": access_token,
+                "to": clean_phone,
+                "country_code": country_code,
+                "sender": sender,
+                "service": service,
+                "message": message
+            }
+            
+            logger.info(f"Sending SMS to {country_code}{clean_phone} via Wappie API")
+            response = requests.get(url, params=params)
+            
+            if response.status_code == 200:
+                logger.info(f"SMS sent successfully: {response.text}")
+                return True
+            else:
+                logger.error(f"Failed to send SMS via Wappie: {response.status_code} - {response.text}")
+                return False
+        else:
+            # Placeholder for WhatsApp API (Other countries)
+            logger.warning(f"International number detected: {phone_str}. WhatsApp integration pending.")
+            return False
+
     except Exception as e:
-        logger.error(f"Failed to send SMS OTP to {phone}: {str(e)}")
+        logger.error(f"Error in send_sms_otp: {str(e)}")
         return False
 
 
@@ -363,6 +402,7 @@ def send_sms_notification(phone: str, message: str) -> bool:
 
 
 # ==================== CACHING UTILITIES ====================
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 def cache_key(prefix: str, *args) -> str:
     """Generate cache key with prefix and arguments"""
@@ -372,17 +412,27 @@ def cache_key(prefix: str, *args) -> str:
 
 def get_cached_data(key: str, default=None):
     """Get data from cache"""
-    return cache.get(key, default)
+    try:
+        return cache.get(key, default)
+    except (RedisConnectionError, Exception) as e:
+        logger.error(f"Cache get error for key {key}: {e}")
+        return default
 
 
 def set_cached_data(key: str, value: Any, timeout: int = 300):
     """Set data in cache with timeout"""
-    cache.set(key, value, timeout)
+    try:
+        cache.set(key, value, timeout)
+    except (RedisConnectionError, Exception) as e:
+        logger.error(f"Cache set error for key {key}: {e}")
 
 
 def delete_cached_data(key: str):
     """Delete data from cache"""
-    cache.delete(key)
+    try:
+        cache.delete(key)
+    except (RedisConnectionError, Exception) as e:
+        logger.error(f"Cache delete error for key {key}: {e}")
 
 
 def cache_model_data(model_class, pk, timeout: int = 300):
