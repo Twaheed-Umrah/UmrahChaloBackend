@@ -1,4 +1,4 @@
-from rest_framework import status, generics, permissions
+from rest_framework import status, generics, permissions, serializers
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 from rest_framework.response import Response
@@ -214,8 +214,11 @@ class UserRegistrationView(generics.CreateAPIView):
             
             # Clear verified session after use
             cache.delete(verified_key)
+        except serializers.ValidationError as e:
+            # Return specific validation errors (e.g., password strength)
+            return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
         except (RedisConnectionError, Exception) as e:
-            logger.error(f"Redis Connection Error: {str(e)}")
+            logger.error(f"Registration View Error: {str(e)}")
             return Response({"error": "Service temporarily unavailable. Please ensure Redis is running."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         user = serializer.save()
@@ -804,8 +807,11 @@ class ServiceProviderRegistrationView(generics.CreateAPIView):
             
             # Clear flag
             cache.delete(verified_key)
+        except serializers.ValidationError as e:
+            # Return specific validation errors (e.g., business name required or password strength)
+            return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
         except (RedisConnectionError, Exception) as e:
-            logger.error(f"Redis Connection Error: {str(e)}")
+            logger.error(f"Provider Registration View Error: {str(e)}")
             return Response({"error": "Service temporarily unavailable. Please ensure Redis is running."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         provider = serializer.save()

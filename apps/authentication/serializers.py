@@ -157,7 +157,8 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
             email=validated_data['email'],
             phone=validated_data.get('phone'),
             full_name=full_name,
-            user_type=validated_data['user_type']
+            user_type=validated_data['user_type'],
+            is_verified=True  # User is already verified via OTP session
         )
         user.set_password(validated_data['password'])
         
@@ -169,17 +170,6 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
             user.location_updated_at = timezone.now()
         
         user.save()
-
-        # Generate and send OTP
-        otp = generate_otp()
-        OTPVerification.objects.create(
-            user=user,
-            otp=otp,
-            purpose='email_verification',
-            expires_at=timezone.now() + timezone.timedelta(minutes=10)
-        )
-        send_otp(user.email, otp, 'email_verification')
-
         return user
 
 
@@ -454,19 +444,10 @@ class ServiceProviderRegistrationSerializer(serializers.ModelSerializer):
             phone=phone,
             password=password,
             full_name=full_name,
-            user_type='provider'
+            user_type='provider',
+            is_verified=True  # User is already verified via OTP session
         )
         
-        # Send OTP
-        otp = generate_otp()
-        OTPVerification.objects.create(
-            user=user,
-            otp=otp,
-            purpose='email_verification',
-            expires_at=timezone.now() + timezone.timedelta(minutes=10)
-        )
-        send_otp(user.email, otp, 'email_verification')
-
         # Create profile with whatever remaining data (might be empty business info)
         return ServiceProviderProfile.objects.create(user=user, **validated_data)
 
