@@ -30,8 +30,8 @@ from .serializers import (
 )
 import logging
 logger = logging.getLogger(__name__)
-from apps.core.utils import send_otp, generate_otp, get_client_ip, get_user_agent
-from .utils import send_email_otp,send_sms_otp
+from apps.core.utils import get_client_ip, get_user_agent
+from .utils import OTPService, SMSService, send_email_otp, send_sms_otp
 from django.core.cache import cache
 from apps.core.pagination import CustomPagination
 from apps.core.permissions import IsSuperAdmin, IsProviderOrReadOnly
@@ -44,116 +44,141 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 
 class RequestOTPView(APIView):
     """
-    Unified API endpoint to request OTP with session binding (request_id)
+    Unified API endpoint to request OTP.
+    - Email -> OTP via email
+    - Phone -> OTP via SMS (Wappie for India, SprintSMS for international)
+    - Redis storage with 5-min TTL
+    - Rate limit: 3 requests per 10 minutes
     """
     permission_classes = [AllowAny]
-    
+
     def post(self, request):
         try:
-            email = request.data.get('email')
-            phone = request.data.get('phone')
-            purpose = request.data.get('purpose', 'registration') # registration, password_reset, login
-            
+            email = request.data.get('email', '').strip() if request.data.get('email') else None
+            phone = request.data.get('phone', '').strip() if request.data.get('phone') else None
+            purpose = request.data.get('purpose', 'registration')  # registration, password_reset, login
+
             if not email and not phone:
-                return Response({"error": "Email or Phone number is required"}, status=status.HTTP_400_BAD_REQUEST)
-            
+                return Response({"error": "Email or phone number is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+            if purpose not in ('registration', 'login', 'password_reset'):
+                return Response({"error": "Invalid purpose."}, status=status.HTTP_400_BAD_REQUEST)
+
             identifier = email if email else phone
             send_method = "email" if email else "sms"
-            
-            # Validation based on purpose
-            user_exists = User.objects.filter(email=identifier).exists() if email else User.objects.filter(phone=identifier).exists()
-            
+
+            # Existence checks
+            user_exists = (
+                User.objects.filter(email=identifier).exists() if email
+                else User.objects.filter(phone=identifier).exists()
+            )
+
             if purpose == 'registration' and user_exists:
-                return Response({"error": "User with this identifier already exists."}, status=status.HTTP_400_BAD_REQUEST)
-            elif purpose in ['password_reset', 'login'] and not user_exists:
+                return Response({"error": "An account with this identifier already exists."}, status=status.HTTP_400_BAD_REQUEST)
+            elif purpose in ('password_reset', 'login') and not user_exists:
                 if purpose == 'login':
-                    return Response({"error": "User with this identifier does not exist."}, status=status.HTTP_404_NOT_FOUND)
+                    return Response({"error": "No account found with this identifier."}, status=status.HTTP_404_NOT_FOUND)
                 # Anti-enumeration for password reset
-                return Response({"message": "If this account exists, an OTP will be sent.", "request_id": str(uuid.uuid4())}, status=status.HTTP_200_OK)
-                
-            # Rate limiting: 5 OTPs per minute
-            rate_limit_key = f"otp_rate_limit_{identifier}"
-            request_count = cache.get(rate_limit_key, 0)
-            
-            if request_count >= 5:
-                return Response({"error": "Too many OTP requests. Please try again in a minute."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
-                
-            otp_code = generate_otp()
+                return Response({
+                    "message": "If this account exists, an OTP will be sent.",
+                    "request_id": str(uuid.uuid4())
+                }, status=status.HTTP_200_OK)
+
+            # Rate limiting via OTPService (4 per 10 min)
+            allowed, wait_time = OTPService.check_rate_limit(identifier)
+            if not allowed:
+                return Response(
+                    {
+                        "error": "Too many OTP requests.",
+                        "retry_after": wait_time,  # Seconds to wait
+                        "message": f"Please wait {wait_time // 60} minutes and {wait_time % 60} seconds before trying again."
+                    },
+                    status=status.HTTP_429_TOO_MANY_REQUESTS
+                )
+
+            otp_code = OTPService.generate_otp()
             request_id = str(uuid.uuid4())
-            
-            # Store session in Redis
+
+            # Store OTP in Redis (5-min TTL) and bind to request_id session
+            OTPService.store_otp(identifier, otp_code, purpose)
             session_data = {
                 "identifier": identifier,
-                "otp": otp_code,
                 "purpose": purpose,
-                "attempts": 0,
+                "send_method": send_method,
                 "created_at": time.time()
             }
-            cache.set(f"otp_session_{request_id}", session_data, timeout=600) # 10 mins
-            
-            # Increment request count
-            cache.set(rate_limit_key, request_count + 1, timeout=60)
-            
-            try:
-                if send_method == "email":
-                    send_otp(identifier, otp_code, purpose)
-                else:
-                    send_sms_otp(identifier, otp_code, purpose)
-                    
-                return Response({
-                    "message": "OTP sent successfully.",
-                    "request_id": request_id,
-                    "otp_sent": True
-                }, status=status.HTTP_200_OK)
-            except Exception as e:
-                logger.error(f"Failed to send OTP to {identifier}: {str(e)}")
-                return Response({"error": "Failed to send OTP"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            cache.set(f"otp_session_{request_id}", session_data, timeout=300)
+
+            # Send OTP
+            sent = False
+            if send_method == "email":
+                sent = send_email_otp(identifier, otp_code, purpose)
+            else:
+                sent = SMSService.send_otp(identifier, otp_code, purpose)
+
+            if not sent:
+                # Clean up on send failure
+                OTPService.delete_otp(identifier, purpose)
+                cache.delete(f"otp_session_{request_id}")
+                return Response({"error": "Failed to send OTP. Please try again."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            return Response({
+                "message": f"OTP sent to your {send_method}.",
+                "request_id": request_id,
+                "otp_sent": True
+            }, status=status.HTTP_200_OK)
+
         except (RedisConnectionError, Exception) as e:
-            logger.error(f"Redis Connection Error: {str(e)}")
-            return Response({"error": "Service temporarily unavailable. Please ensure Redis is running."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            logger.error(f"RequestOTPView error: {e}")
+            return Response({"error": "Service temporarily unavailable."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
 class VerifyOTPView(APIView):
     """
-    Unified API endpoint to verify OTP with session binding
+    Unified OTP verification endpoint.
+    - Delegates all retry/expiry logic to OTPService
+    - On success: issues JWT tokens for login, or returns verified session for registration/reset
     """
     permission_classes = [AllowAny]
-    
+
     def post(self, request):
         try:
             request_id = request.data.get('request_id')
             otp = request.data.get('otp')
-            
+
             if not request_id or not otp:
-                return Response({"error": "Request ID and OTP are required"}, status=status.HTTP_400_BAD_REQUEST)
-                
+                return Response({"error": "Request ID and OTP are required."}, status=status.HTTP_400_BAD_REQUEST)
+
             session_key = f"otp_session_{request_id}"
             session_data = cache.get(session_key)
-            
+
             if not session_data:
-                return Response({"error": "Session expired or invalid Request ID"}, status=status.HTTP_400_BAD_REQUEST)
-                
-            # Attempt limiting
-            if session_data.get('attempts', 0) >= 3:
-                cache.delete(session_key)
-                return Response({"error": "Too many failed attempts. Please request a new OTP."}, status=status.HTTP_400_BAD_REQUEST)
-                
-            if str(session_data['otp']) != str(otp):
-                session_data['attempts'] = session_data.get('attempts', 0) + 1
-                cache.set(session_key, session_data, timeout=600)
-                return Response({"error": f"Invalid OTP. {3 - session_data['attempts']} attempts remaining."}, status=status.HTTP_400_BAD_REQUEST)
-                 
+                return Response({"error": "Session expired or invalid. Please request a new OTP."}, status=status.HTTP_400_BAD_REQUEST)
+
             identifier = session_data['identifier']
             purpose = session_data['purpose']
-            
-            # Handle Login purpose immediately
+
+            # Delegate verification to OTPService (handles retries + expiry)
+            success, message = OTPService.verify_otp(identifier, otp, purpose)
+
+            if not success:
+                return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
+
+            # OTP verified — clean up session
+            cache.delete(session_key)
+
+            # Login purpose: issue JWT immediately
             if purpose == 'login':
                 try:
                     user = User.objects.get(email=identifier) if "@" in identifier else User.objects.get(phone=identifier)
-                    cache.delete(session_key)
-                    
-                    from rest_framework_simplejwt.tokens import RefreshToken
                     refresh = RefreshToken.for_user(user)
-                    
+
+                    UserActivity.objects.create(
+                        user=user,
+                        activity_type='login',
+                        description='User logged in via OTP',
+                        ip_address=get_client_ip(request)
+                    )
+
                     return Response({
                         "message": "Login successful.",
                         "access_token": str(refresh.access_token),
@@ -161,27 +186,25 @@ class VerifyOTPView(APIView):
                         "user": UserProfileSerializer(user).data
                     }, status=status.HTTP_200_OK)
                 except User.DoesNotExist:
-                    return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
-            
-            # Set a verification flag bound to the request_id
+                    return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+            # For registration / password_reset: store verified session
             verified_data = {
                 "identifier": identifier,
                 "purpose": purpose,
                 "verified_at": time.time()
             }
             cache.set(f"verified_session_{request_id}", verified_data, timeout=600)
-            
-            # CRITICAL: Delete OTP session after verification to prevent reuse
-            cache.delete(session_key)
-            
+
             return Response({
-                "message": "Verified successfully.",
+                "message": "OTP verified successfully.",
                 "request_id": request_id,
                 "verified": True
             }, status=status.HTTP_200_OK)
+
         except (RedisConnectionError, Exception) as e:
-            logger.error(f"Redis Connection Error: {str(e)}")
-            return Response({"error": "Service temporarily unavailable. Please ensure Redis is running."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            logger.error(f"VerifyOTPView error: {e}")
+            return Response({"error": "Service temporarily unavailable."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
 class UserRegistrationView(generics.CreateAPIView):
     """
@@ -193,33 +216,37 @@ class UserRegistrationView(generics.CreateAPIView):
     def post(self, request, *args, **kwargs):
         try:
             phone = request.data.get('phone')
+            email = request.data.get('email')
             request_id = request.data.get('request_id')
-            
-            if not phone or not request_id:
-                return Response({"error": "Phone number and Request ID are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+            identifier = email if email else phone
+
+            if not identifier or not request_id:
+                return Response({"error": "Identifier (email or phone) and Request ID are required."}, status=status.HTTP_400_BAD_REQUEST)
 
             # Validate verified session
             verified_key = f"verified_session_{request_id}"
             verified_data = cache.get(verified_key)
-            
+
             if not verified_data:
                 return Response({"error": "Session expired or not verified. Please verify OTP first."}, status=status.HTTP_400_BAD_REQUEST)
-                
+
             # Strict identifier and purpose binding
-            if verified_data['identifier'] != phone or verified_data['purpose'] != 'registration':
+            # Check if either the email or the phone matches the verified identifier
+            verified_id = verified_data.get('identifier')
+            if verified_id not in (email, phone) or verified_data['purpose'] != 'registration':
                 return Response({"error": "Invalid session or identifier mismatch."}, status=status.HTTP_400_BAD_REQUEST)
-                 
+
             serializer = self.get_serializer(data=request.data)
             serializer.is_valid(raise_exception=True)
-            
+
             # Clear verified session after use
             cache.delete(verified_key)
         except serializers.ValidationError as e:
-            # Return specific validation errors (e.g., password strength)
             return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
         except (RedisConnectionError, Exception) as e:
             logger.error(f"Registration View Error: {str(e)}")
-            return Response({"error": "Service temporarily unavailable. Please ensure Redis is running."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            return Response({"error": "Service temporarily unavailable."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         user = serializer.save()
 
@@ -319,6 +346,7 @@ class UserLoginView(APIView):
         return Response(response_data, status=status.HTTP_200_OK)
 
 class OTPLoginView(APIView):
+    """OTP-based login: sends OTP to email or phone."""
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -330,51 +358,45 @@ class OTPLoginView(APIView):
             phone = serializer.validated_data.get('phone')
             identifier = email if email else phone
 
-            # Rate limiting: 5 OTPs per minute
-            rate_limit_key = f"otp_rate_limit_{identifier}"
-            request_count = cache.get(rate_limit_key, 0)
-            
-            if request_count >= 5:
-                return Response({"error": "Too many OTP requests. Please try again in a minute."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            # Rate limit
+            if not OTPService.check_rate_limit(identifier):
+                return Response(
+                    {"error": "Too many OTP requests. Please wait 10 minutes."},
+                    status=status.HTTP_429_TOO_MANY_REQUESTS
+                )
 
             try:
                 user = User.objects.get(email=email) if email else User.objects.get(phone=phone)
             except User.DoesNotExist:
-                return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+                return Response({"error": "No account found with this identifier."}, status=status.HTTP_404_NOT_FOUND)
 
-            otp_code = generate_otp()
+            otp_code = OTPService.generate_otp()
             request_id = str(uuid.uuid4())
-            
-            # Store session in Redis (using the same secure logic as RequestOTPView)
-            session_data = {
-                "identifier": identifier,
-                "otp": otp_code,
-                "purpose": "login",
-                "attempts": 0,
-                "created_at": time.time()
-            }
-            cache.set(f"otp_session_{request_id}", session_data, timeout=600)
-            
-            # Increment rate limit counter
-            cache.set(rate_limit_key, request_count + 1, timeout=60)
 
-            try:
-                if email:
-                    send_email_otp(email, otp_code, "login")
-                else:
-                    send_sms_otp(phone, otp_code)
-                    
-                return Response({
-                    "message": "OTP sent successfully.",
-                    "request_id": request_id,
-                    "otp_sent": True
-                }, status=status.HTTP_200_OK)
-            except Exception as e:
-                logger.error(f"Failed to send OTP to {identifier}: {str(e)}")
-                return Response({"error": "Failed to send OTP"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            # Store OTP in Redis
+            OTPService.store_otp(identifier, otp_code, 'login')
+            cache.set(f"otp_session_{request_id}", {
+                "identifier": identifier,
+                "purpose": "login",
+                "created_at": time.time()
+            }, timeout=300)
+
+            # Send OTP
+            sent = send_email_otp(email, otp_code, 'login') if email else SMSService.send_otp(phone, otp_code, 'login')
+            if not sent:
+                OTPService.delete_otp(identifier, 'login')
+                cache.delete(f"otp_session_{request_id}")
+                return Response({"error": "Failed to send OTP."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            return Response({
+                "message": "OTP sent successfully.",
+                "request_id": request_id,
+                "otp_sent": True
+            }, status=status.HTTP_200_OK)
+
         except (RedisConnectionError, Exception) as e:
-            logger.error(f"Redis Error in OTPLogin: {str(e)}")
-            return Response({"error": "Service temporarily unavailable. Please ensure Redis is running."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            logger.error(f"OTPLoginView error: {e}")
+            return Response({"error": "Service temporarily unavailable."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
 class OTPVerificationView(APIView):

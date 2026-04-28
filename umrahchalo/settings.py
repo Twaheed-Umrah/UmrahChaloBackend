@@ -316,10 +316,22 @@ NOTIFICATION_SETTINGS = {
         }
     }
 }
-# SMS Configuration (Twilio)
-TWILIO_ACCOUNT_SID = 'AC670c0b8f4d019125e428b8cca1d26cec'
-TWILIO_AUTH_TOKEN = "2ced98ad055d4bc5605aa0a9d9eb98d7"
-TWILIO_PHONE_NUMBER = "+19808426653"
+# SMS Configuration
+SMS_CONFIG = {
+    'WAPPIE': {
+        'ACCESS_TOKEN': '1648c635eab1561d92b0d5e4ab2ce19b',
+        'SENDER': 'UMCHLO',
+        'SERVICE': 'SI',
+        'TEMPLATE_ID': '1007428242881093005',
+        'BASE_URL': 'https://apis.wappie.shop/v1/sms/messages'
+    },
+    'SPRINTSMS': {
+        'API_ID': 'AmberWebSolution06449013',
+        'API_PASSWORD': 'B0dX4cnLKQql45BC',
+        'SENDER_ID': 'Datehar',
+        'BASE_URL': 'https://pxapi.sprintsmsservice.com/api/SendSms'
+    },
+}
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
