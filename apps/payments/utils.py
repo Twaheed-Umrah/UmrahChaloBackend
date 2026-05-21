@@ -3,6 +3,8 @@ import hashlib
 import hmac
 import json
 import logging
+import requests
+import base64
 from django.conf import settings
 from django.utils import timezone
 from decimal import Decimal
@@ -30,6 +32,8 @@ class PaymentGatewayManager:
         try:
             if self.payment_method.type == 'razorpay':
                 return self._create_razorpay_order(payment)
+            elif self.payment_method.type == 'paypal':
+                return self._create_paypal_order(payment)
             else:
                 raise NotImplementedError(f"Payment method {self.payment_method.type} not implemented")
         except Exception as e:
@@ -70,6 +74,9 @@ class PaymentGatewayManager:
         try:
             if self.payment_method.type == 'razorpay':
                 return self._verify_razorpay_payment(payment_id, order_id, signature)
+            elif self.payment_method.type == 'paypal':
+                # For PayPal, we capture using the order_id, signature/payment_id are not used same way
+                return self._verify_paypal_payment(order_id)
             else:
                 raise NotImplementedError(f"Payment method {self.payment_method.type} not implemented")
         except Exception as e:
@@ -109,6 +116,9 @@ class PaymentGatewayManager:
         try:
             if self.payment_method.type == 'razorpay':
                 return self._process_razorpay_refund(refund)
+            elif self.payment_method.type == 'paypal':
+                # To be implemented
+                raise NotImplementedError("PayPal refund not implemented yet")
             else:
                 raise NotImplementedError(f"Payment method {self.payment_method.type} not implemented")
         except Exception as e:
@@ -150,6 +160,11 @@ class PaymentGatewayManager:
         try:
             if self.payment_method.type == 'razorpay':
                 return self._process_razorpay_webhook(webhook)
+            elif self.payment_method.type == 'paypal':
+                # To be implemented
+                logger.warning("PayPal webhook processing not implemented")
+                webhook.status = 'ignored'
+                webhook.save()
             else:
                 logger.warning(f"Webhook processing not implemented for {self.payment_method.type}")
                 webhook.status = 'ignored'
@@ -160,6 +175,136 @@ class PaymentGatewayManager:
             webhook.error_message = str(e)
             webhook.save()
             raise
+
+    # ------------------ PayPal Integration Methods ------------------
+
+    def _get_paypal_access_token(self):
+        client_id = settings.PAYMENT_GATEWAY_SETTINGS.get('PAYPAL', {}).get('CLIENT_ID', '')
+        secret = settings.PAYMENT_GATEWAY_SETTINGS.get('PAYPAL', {}).get('SECRET_KEY', '')
+        mode = settings.PAYMENT_GATEWAY_SETTINGS.get('PAYPAL', {}).get('MODE', 'sandbox')
+        
+        base_url = "https://api-m.paypal.com" if mode == 'live' else "https://api-m.sandbox.paypal.com"
+        
+        auth_str = f"{client_id}:{secret}"
+        auth_bytes = auth_str.encode('ascii')
+        auth_b64 = base64.b64encode(auth_bytes).decode('ascii')
+        
+        headers = {
+            "Authorization": f"Basic {auth_b64}",
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+        data = {"grant_type": "client_credentials"}
+        
+        response = requests.post(f"{base_url}/v1/oauth2/token", headers=headers, data=data)
+        if response.status_code == 200:
+            return response.json().get('access_token')
+        else:
+            logger.error(f"Failed to get PayPal token: {response.text}")
+            raise Exception("Failed to get PayPal token")
+
+    def _create_paypal_order(self, payment):
+        """Create PayPal order"""
+        token = self._get_paypal_access_token()
+        mode = settings.PAYMENT_GATEWAY_SETTINGS.get('PAYPAL', {}).get('MODE', 'sandbox')
+        base_url = "https://api-m.paypal.com" if mode == 'live' else "https://api-m.sandbox.paypal.com"
+        
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+        
+        # PayPal uses standard formatted float string (e.g. "100.00")
+        amount_str = f"{payment.total_amount:.2f}"
+        
+        payload = {
+            "intent": "CAPTURE",
+            "purchase_units": [
+                {
+                    "reference_id": f"payment_{payment.id}",
+                    "amount": {
+                        "currency_code": payment.currency,
+                        "value": amount_str
+                    },
+                    "description": payment.purpose
+                }
+            ]
+        }
+        
+        response = requests.post(f"{base_url}/v2/checkout/orders", headers=headers, json=payload)
+        if response.status_code in (200, 201):
+            order = response.json()
+            
+            # Create transaction record
+            PaymentTransaction.objects.create(
+                payment=payment,
+                transaction_type='payment',
+                amount=payment.total_amount,
+                currency=payment.currency,
+                gateway_transaction_id=order['id'],
+                gateway_response=order,
+                status='pending',
+                description=f'PayPal order created for payment {payment.id}'
+            )
+            
+            return order
+        else:
+            logger.error(f"Failed to create PayPal order: {response.text}")
+            raise Exception("Failed to create PayPal order")
+
+    def _verify_paypal_payment(self, order_id):
+        """Verify/Capture PayPal payment"""
+        token = self._get_paypal_access_token()
+        mode = settings.PAYMENT_GATEWAY_SETTINGS.get('PAYPAL', {}).get('MODE', 'sandbox')
+        base_url = "https://api-m.paypal.com" if mode == 'live' else "https://api-m.sandbox.paypal.com"
+        
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+        
+        # Capture the order
+        response = requests.post(f"{base_url}/v2/checkout/orders/{order_id}/capture", headers=headers)
+        
+        # 201 Created or 200 OK means captured
+        if response.status_code in (200, 201):
+            capture_data = response.json()
+            status = capture_data.get('status')
+            
+            if status == 'COMPLETED':
+                # Get capture ID
+                try:
+                    capture_id = capture_data['purchase_units'][0]['payments']['captures'][0]['id']
+                except (KeyError, IndexError):
+                    capture_id = order_id
+                    
+                return {
+                    'success': True,
+                    'payment_id': capture_id,
+                    'order_id': order_id,
+                    'signature': None,
+                    'payment_details': capture_data
+                }
+            else:
+                return {'success': False, 'error': f'PayPal status is {status}'}
+        else:
+            logger.error(f"PayPal capture failed: {response.text}")
+            # Could be already captured, check if it's already complete by getting order details
+            get_resp = requests.get(f"{base_url}/v2/checkout/orders/{order_id}", headers=headers)
+            if get_resp.status_code == 200:
+                order_data = get_resp.json()
+                if order_data.get('status') == 'COMPLETED':
+                    try:
+                        capture_id = order_data['purchase_units'][0]['payments']['captures'][0]['id']
+                    except (KeyError, IndexError):
+                        capture_id = order_id
+                    return {
+                        'success': True,
+                        'payment_id': capture_id,
+                        'order_id': order_id,
+                        'signature': None,
+                        'payment_details': order_data
+                    }
+            return {'success': False, 'error': f'Capture error: {response.text}'}
     
     def _process_razorpay_webhook(self, webhook):
         """Process Razorpay webhook"""

@@ -273,6 +273,12 @@ RAZORPAY_KEY_SECRET = '7Ox6LW8kzLycPbStojMiROWB'
 # You can get this from Razorpay dashboard when setting up webhooks
 RAZORPAY_WEBHOOK_SECRET = 'Umrahchalo@786'  # Replace with actual secret
 
+# PayPal Configuration
+PAYPAL_CLIENT_ID = 'Aeqce1G4xHbAOU7qW10eDPfTjEp3PGttTnUUgOlI849VzuH-8Hvz0HHJWmK-TbisCw6Y_dU-_Byi2ocJ'
+PAYPAL_SECRET_KEY = 'EN_KS8R-wiBhhiDy2fIjPt2LASuSS9k0_YZA2NIL60lSluLnb63NYhzgA-r_Gvw3ZUNCQqOL2zvGhUSw'
+PAYPAL_MODE = 'live' # live or sandbox
+USD_TO_INR_RATE = 83.0
+
 # Payment gateway settings
 PAYMENT_GATEWAY_SETTINGS = {
     'RAZORPAY': {
@@ -280,6 +286,11 @@ PAYMENT_GATEWAY_SETTINGS = {
         'KEY_SECRET': RAZORPAY_KEY_SECRET,
         'WEBHOOK_SECRET': RAZORPAY_WEBHOOK_SECRET if 'RAZORPAY_WEBHOOK_SECRET' in locals() else None,
         'MODE': 'TEST',  # Change to 'LIVE' in production
+    },
+    'PAYPAL': {
+        'CLIENT_ID': PAYPAL_CLIENT_ID,
+        'SECRET_KEY': PAYPAL_SECRET_KEY,
+        'MODE': PAYPAL_MODE,
     }
 }
 STRIPE_PUBLIC_KEY = config('STRIPE_PUBLIC_KEY', default='')
