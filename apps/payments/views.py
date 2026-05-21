@@ -51,7 +51,39 @@ class PaymentCreateView(generics.CreateAPIView):
     serializer_class = PaymentCreateSerializer
     permission_classes = [permissions.IsAuthenticated]
     
-    def perform_create(self, serializer):
+    def create(self, request, *args, **kwargs):
+        """Override create to handle dynamic gateway routing based on user country"""
+        user = request.user
+        country = 'India'
+        
+        # Check ServiceProviderProfile for country
+        if hasattr(user, 'service_provider_profile') and user.service_provider_profile.business_country:
+            country = user.service_provider_profile.business_country
+            
+        # Determine gateway
+        is_india = country.strip().lower() == 'india'
+        gateway_type = 'razorpay' if is_india else 'paypal'
+        
+        # Get or create the payment method
+        pm, _ = PaymentMethod.objects.get_or_create(
+            type=gateway_type,
+            defaults={'name': gateway_type.capitalize(), 'is_active': True}
+        )
+        
+        # Override the request data
+        data = request.data.copy()
+        data['payment_method'] = gateway_type
+        
+        # Convert amount if paypal
+        if not is_india:
+            amount_inr = float(data.get('amount', 0))
+            rate = getattr(settings, 'USD_TO_INR_RATE', 83.0)
+            amount_usd = amount_inr / rate
+            data['amount'] = round(amount_usd, 2)
+            data['currency'] = 'USD'
+            
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
         payment = serializer.save()
         
         # Initialize payment with gateway
@@ -60,24 +92,24 @@ class PaymentCreateView(generics.CreateAPIView):
             gateway_order = gateway_manager.create_order(payment)
             payment.gateway_order_id = gateway_order.get('id')
             payment.save()
-            # Return order details in response
-            self.gateway_order = gateway_order
+            
+            headers = self.get_success_headers(serializer.data)
+            response_data = serializer.data
+            response_data['gateway_order'] = gateway_order
+            
+            if gateway_type == 'razorpay':
+                response_data['razorpay_key'] = settings.PAYMENT_GATEWAY_SETTINGS.get('RAZORPAY', {}).get('KEY_ID')
+            elif gateway_type == 'paypal':
+                response_data['paypal_client_id'] = settings.PAYMENT_GATEWAY_SETTINGS.get('PAYPAL', {}).get('CLIENT_ID')
+                
+            return Response(response_data, status=status.HTTP_201_CREATED, headers=headers)
+            
         except Exception as e:
             logger.error(f"Error creating payment order: {str(e)}")
             payment.status = 'failed'
             payment.failed_at = timezone.now()
             payment.save()
-            raise
-    
-    def create(self, request, *args, **kwargs):
-        """Override create to return gateway order details"""
-        response = super().create(request, *args, **kwargs)
-        
-        if hasattr(self, 'gateway_order'):
-            response.data['gateway_order'] = self.gateway_order
-            response.data['razorpay_key'] = settings.RAZORPAY_KEY_ID or 'rzp_test_ZI5G0k0dQJfr79'
-        
-        return response
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 class PaymentListView(generics.ListAPIView):
     """List user's payments"""
@@ -178,10 +210,16 @@ def verify_payment(request, payment_id):
         # Initialize gateway manager
         gateway_manager = PaymentGatewayManager(payment.payment_method)
         # Verify payment with gateway
+        # Verify payment with gateway
+        # Frontend will send razorpay_order_id OR paypal_order_id
+        order_id = request.data.get('razorpay_order_id') or request.data.get('paypal_order_id')
+        payment_id = request.data.get('razorpay_payment_id') or request.data.get('paypal_payment_id')
+        signature = request.data.get('razorpay_signature')
+        
         verification_result = gateway_manager.verify_payment(
-            payment_id=request.data.get('razorpay_payment_id'),
-            order_id=request.data.get('razorpay_order_id'),
-            signature=request.data.get('razorpay_signature')
+            payment_id=payment_id,
+            order_id=order_id,
+            signature=signature
         )
         
         # Use database transaction for consistency
