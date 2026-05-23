@@ -275,7 +275,7 @@ def verify_payment(request, payment_id):
                     gateway_transaction_id=request.data.get('razorpay_payment_id'),
                     gateway_response=verification_result,
                     status='failed',
-                    description=f'Payment verification failed: {verification_result.get("message", "Unknown error")}'
+                    description=f'Payment verification failed: {verification_result.get("error", verification_result.get("message", "Unknown error"))}'
                 )
                 
                 transaction.on_commit(
@@ -285,7 +285,7 @@ def verify_payment(request, payment_id):
                 
                 return Response({
                     'success': False,
-                    'message': verification_result.get('message', 'Payment verification failed'),
+                    'message': verification_result.get('error', verification_result.get('message', 'Payment verification failed')),
                     'payment': PaymentSerializer(payment).data
                 }, status=status.HTTP_400_BAD_REQUEST)
             

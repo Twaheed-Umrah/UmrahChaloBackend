@@ -263,7 +263,7 @@ class PaymentGatewayManager:
         }
         
         # Capture the order
-        response = requests.post(f"{base_url}/v2/checkout/orders/{order_id}/capture", headers=headers)
+        response = requests.post(f"{base_url}/v2/checkout/orders/{order_id}/capture", headers=headers, json={})
         
         # 201 Created or 200 OK means captured
         if response.status_code in (200, 201):
