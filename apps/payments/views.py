@@ -94,7 +94,9 @@ class PaymentCreateView(generics.CreateAPIView):
             payment.save()
             
             headers = self.get_success_headers(serializer.data)
-            response_data = serializer.data
+            # Create a mutable copy of serializer.data
+            response_data = dict(serializer.data)
+            response_data['id'] = payment.id
             response_data['gateway_order'] = gateway_order
             
             if gateway_type == 'razorpay':

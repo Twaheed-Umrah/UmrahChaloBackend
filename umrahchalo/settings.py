@@ -304,7 +304,7 @@ EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'your-email@gmail.com'
 EMAIL_HOST_PASSWORD = 'your-app-password'
-DEFAULT_FROM_EMAIL = 'Umrah Chalo <noreply@umrahchalo.com>'
+DEFAULT_FROM_EMAIL = 'Umrah Chalo <hajjumrahservice072@gmail.com>'
 
 # Notification System Settings
 NOTIFICATION_SETTINGS = {

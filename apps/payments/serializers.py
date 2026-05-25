@@ -22,7 +22,7 @@ class PaymentCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Payment
         fields = [
-            'subscription', 'payment_method', 'amount', 
+            'id', 'subscription', 'payment_method', 'amount', 
             'currency', 'purpose', 'description', 'metadata'
         ]
     
