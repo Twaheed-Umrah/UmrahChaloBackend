@@ -50,8 +50,10 @@ urlpatterns = [
         path('deactivate/', views.deactivate_account, name='deactivate-account'),
         path('reactivate/', views.reactivate_account, name='reactivate-account'),
         path('export/', views.export_user_data, name='export-user-data'),
+        path('delete/request-otp/', views.request_account_delete_otp, name='account-delete-request-otp'),
         path('delete/', views.delete_user_account, name='delete-user-account'),
     ])),
+
     
     # Verification
     path('verify/', include([

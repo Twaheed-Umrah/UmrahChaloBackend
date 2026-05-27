@@ -465,14 +465,32 @@ class UserActivity(models.Model):
     ACTIVITY_TYPES = (
         ('login', 'Login'),
         ('logout', 'Logout'),
+        ('registration', 'Registration'),
         ('view_package', 'View Package'),
         ('inquiry_sent', 'Inquiry Sent'),
         ('package_saved', 'Package Saved'),
+        ('package_unsaved', 'Package Unsaved'),
         ('search_performed', 'Search Performed'),
+        ('profile_update', 'Profile Update'),
+        ('profile_deactivation', 'Profile Deactivation'),
+        ('location_update', 'Location Update'),
+        ('password_change', 'Password Change'),
+        ('password_reset_otp_verified', 'Password Reset OTP Verified'),
+        ('password_reset_complete', 'Password Reset Complete'),
+        ('email_verification', 'Email Verification'),
+        ('phone_verification', 'Phone Verification'),
+        ('account_deactivation', 'Account Deactivation'),
+        ('account_reactivation', 'Account Reactivation'),
+        ('account_deletion', 'Account Deletion'),
+        ('data_export', 'Data Export'),
+        ('bulk_action', 'Bulk Action'),
+        ('settings_update', 'Settings Update'),
+        ('preferences_update', 'Preferences Update'),
+        ('app_open_location_update', 'App Open Location Update'),
     )
     
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='activities')
-    activity_type = models.CharField(max_length=20, choices=ACTIVITY_TYPES)
+    activity_type = models.CharField(max_length=50, choices=ACTIVITY_TYPES)
     description = models.TextField(blank=True)
     metadata = models.JSONField(default=dict, blank=True)
     ip_address = models.GenericIPAddressField(null=True, blank=True)
