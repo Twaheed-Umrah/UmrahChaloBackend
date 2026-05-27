@@ -2119,39 +2119,210 @@ def export_user_data(request):
     }, status=status.HTTP_200_OK)
 
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def request_account_delete_otp(request):
+    """
+    Step 1 — Account Deletion (any user role: pilgrim, provider, admin)
+    Sends a deletion-confirmation OTP to the user's registered phone (preferred)
+    or email (fallback). Returns a request_id to be used in Step 2.
+
+    POST /account/delete/request-otp/
+    No body required — user is identified from JWT token.
+    """
+    user = request.user
+    identifier = None
+    send_method = None
+
+    # Prefer phone for OTP, fall back to email
+    if user.phone:
+        identifier = user.phone
+        send_method = 'sms'
+    elif user.email:
+        identifier = user.email
+        send_method = 'email'
+    else:
+        return Response(
+            {'error': 'No registered phone or email found on this account.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Rate-limit: max 3 delete-OTP requests per 10 minutes per user
+    rate_key = f"delete_otp_rate_{user.id}"
+    attempts = cache.get(rate_key, 0)
+    if attempts >= 3:
+        return Response(
+            {
+                'error': 'Too many deletion OTP requests. Please wait 10 minutes.',
+                'retry_after': 600
+            },
+            status=status.HTTP_429_TOO_MANY_REQUESTS
+        )
+    cache.set(rate_key, attempts + 1, timeout=600)
+
+    # Generate OTP and session
+    otp_code = OTPService.generate_otp()
+    request_id = str(uuid.uuid4())
+
+    # Store OTP in Redis — purpose 'account_deletion', TTL 5 minutes
+    OTPService.store_otp(identifier, otp_code, 'account_deletion')
+    session_data = {
+        'user_id': str(user.id),
+        'identifier': identifier,
+        'send_method': send_method,
+        'purpose': 'account_deletion',
+        'created_at': time.time(),
+    }
+    cache.set(f"otp_session_{request_id}", session_data, timeout=300)
+
+    # Send OTP
+    sent = False
+    try:
+        if send_method == 'email':
+            sent = send_email_otp(identifier, otp_code, 'account_deletion')
+        else:
+            sent = SMSService.send_otp(identifier, otp_code, 'account_deletion')
+    except Exception as e:
+        logger.error(f"request_account_delete_otp: failed to send OTP — {e}")
+
+    if not sent:
+        # Roll back stored OTP on send failure
+        OTPService.delete_otp(identifier, 'account_deletion')
+        cache.delete(f"otp_session_{request_id}")
+        return Response(
+            {'error': 'Failed to send OTP. Please try again.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+    return Response(
+        {
+            'message': f'A 6-digit confirmation OTP has been sent to your registered {send_method}.',
+            'request_id': request_id,
+            'otp_sent': True,
+            'send_method': send_method,
+            'masked_target': (
+                identifier[:3] + '****' + identifier[-2:]
+                if send_method == 'sms'
+                else identifier[:3] + '****' + identifier[identifier.index('@'):]
+            ),
+        },
+        status=status.HTTP_200_OK
+    )
+
+
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def delete_user_account(request):
     """
-    API endpoint to delete user account (GDPR compliance)
+    Step 2 — Account Deletion (any user role: pilgrim, provider, admin)
+    Verifies the OTP from Step 1 and permanently removes the account.
+
+    DELETE /account/delete/
+    Body: { "request_id": "<uuid>", "otp": "<6-digit>" }
+
+    What this does on success:
+      ✅ Verifies OTP (Redis-backed, 5-min TTL, max 3 attempts)
+      ✅ Blacklists active JWT refresh token
+      ✅ Clears all active user sessions
+      ✅ Deactivates ServiceProviderProfile (if provider)
+      ✅ Anonymizes email, username, phone so the slots are freed
+      ✅ Sets user.is_active = False (soft delete — data retained for auditing)
+      ✅ Logs a valid 'account_deletion' activity
     """
     user = request.user
-    password = request.data.get('password')
-    
-    # Verify password
-    if not user.check_password(password):
-        return Response({
-            'error': 'Invalid password'
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
-    # Log activity before deletion
-    UserActivity.objects.create(
-        user=user,
-        activity_type='account_deletion',
-        description='User account deleted',
-        ip_address=get_client_ip(request)
-    )
-    
-    # Perform soft delete or anonymize data
+    request_id = request.data.get('request_id')
+    otp = request.data.get('otp')
+
+    # ── Validate input ────────────────────────────────────────────────────────
+    if not request_id or not otp:
+        return Response(
+            {'error': 'Both request_id and otp are required.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # ── Validate session ──────────────────────────────────────────────────────
+    session_key = f"otp_session_{request_id}"
+    session_data = cache.get(session_key)
+
+    if not session_data:
+        return Response(
+            {'error': 'Session expired or invalid request_id. Please request a new OTP.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Ensure the session belongs to the authenticated user (prevents token theft)
+    if str(session_data.get('user_id')) != str(user.id):
+        return Response(
+            {'error': 'Session does not belong to the authenticated user.'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    if session_data.get('purpose') != 'account_deletion':
+        return Response(
+            {'error': 'This OTP was not issued for account deletion.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    identifier = session_data['identifier']
+
+    # ── Verify OTP (OTPService handles attempt limiting + expiry) ─────────────
+    success, message = OTPService.verify_otp(identifier, otp, 'account_deletion')
+    if not success:
+        return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
+
+    # OTP verified — clean up session immediately
+    cache.delete(session_key)
+
+    # ── 1. Blacklist JWT refresh token (if provided) ───────────────────────────
+    refresh_token_str = request.data.get('refresh_token')
+    if refresh_token_str:
+        try:
+            token = RefreshToken(refresh_token_str)
+            token.blacklist()
+        except TokenError:
+            pass  # Already expired or invalid — that's fine
+
+    # ── 2. Terminate all active sessions ──────────────────────────────────────
+    UserSession.objects.filter(user=user, is_active=True).update(is_active=False)
+
+    # ── 3. Deactivate ServiceProviderProfile (providers only) ─────────────────
+    if user.user_type == 'provider':
+        try:
+            provider_profile = user.service_provider_profile
+            provider_profile.is_active = False
+            provider_profile.save(update_fields=['is_active'])
+        except ServiceProviderProfile.DoesNotExist:
+            pass
+
+    # ── 4. Log the deletion BEFORE anonymizing (while user FK is still valid) ─
+    try:
+        UserActivity.objects.create(
+            user=user,
+            activity_type='account_deletion',
+            description=f'Account permanently deleted by user (role: {user.user_type})',
+            ip_address=get_client_ip(request),
+            metadata={'user_type': user.user_type}
+        )
+    except Exception as log_err:
+        logger.error(f"delete_user_account: failed to log activity — {log_err}")
+
+    # ── 5. Anonymize & soft-delete ─────────────────────────────────────────────
+    uid = user.id
     user.is_active = False
-    user.email = f"deleted_{user.id}@example.com"
-    user.username = f"deleted_{user.id}"
-    user.save()
-    
-    return Response({
-        'message': 'Account deleted successfully'
-    }, status=status.HTTP_200_OK)
+    user.email = f"deleted_{uid}@deleted.umrahchalo.com"
+    user.username = f"deleted_{uid}"
+    user.phone = None          # Free the phone slot for new registrations
+    user.full_name = "Deleted User"
+    user.save(update_fields=['is_active', 'email', 'username', 'phone', 'full_name'])
+
+    return Response(
+        {'message': 'Your account has been permanently deleted.'},
+        status=status.HTTP_200_OK
+    )
+
+
 @api_view(['GET'])
+
 @permission_classes([AllowAny])
 def get_nearby_providers(request):
     try:
