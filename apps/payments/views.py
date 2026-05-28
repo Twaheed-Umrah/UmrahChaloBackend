@@ -59,9 +59,15 @@ class PaymentCreateView(generics.CreateAPIView):
         # Check ServiceProviderProfile for country
         if hasattr(user, 'service_provider_profile') and user.service_provider_profile.business_country:
             country = user.service_provider_profile.business_country
+        elif hasattr(user, 'location_address') and user.location_address:
+            # Fallback for pilgrims - extract country from address if possible
+            address_parts = user.location_address.split(',')
+            if address_parts:
+                country = address_parts[-1].strip()
             
         # Determine gateway
-        is_india = country.strip().lower() == 'india'
+        # Match against common variations including ISO codes like "IN"
+        is_india = country.strip().lower() in ['india', 'in', 'ind', '+91']
         gateway_type = 'razorpay' if is_india else 'paypal'
         
         # Get or create the payment method
@@ -215,11 +221,11 @@ def verify_payment(request, payment_id):
         # Verify payment with gateway
         # Frontend will send razorpay_order_id OR paypal_order_id
         order_id = request.data.get('razorpay_order_id') or request.data.get('paypal_order_id')
-        payment_id = request.data.get('razorpay_payment_id') or request.data.get('paypal_payment_id')
+        gateway_payment_id = request.data.get('razorpay_payment_id') or request.data.get('paypal_payment_id')
         signature = request.data.get('razorpay_signature')
         
         verification_result = gateway_manager.verify_payment(
-            payment_id=payment_id,
+            payment_id=gateway_payment_id,
             order_id=order_id,
             signature=signature
         )
