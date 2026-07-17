@@ -77,7 +77,11 @@ urlpatterns = [
         path('<int:id>/', views.ServiceProviderPublicDetailView.as_view(), name='provider-public-detail'),
         path('<int:provider_id>/contact/', views.get_provider_contact, name='provider-contact'),
         path('<int:provider_id>/verify/', views.ProviderVerificationView.as_view(), name='provider-verification'),
+        # Certificate endpoints
+        path('certificate/', views.ProviderCertificateView.as_view(), name='provider-certificate'),
+        path('certificate/send-email/', views.SendCertificateEmailView.as_view(), name='provider-certificate-email'),
     ])),
+
         
     # Activity & Tracking
     path('tracking/', include([

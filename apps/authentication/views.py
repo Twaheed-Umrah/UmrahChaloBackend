@@ -2579,3 +2579,226 @@ def user_location_history(request):
         'location_history': location_history,
         'total_updates': activities.count()
     }, status=status.HTTP_200_OK)
+
+
+# ============================================================
+# CERTIFICATE VIEWS
+# ============================================================
+
+class ProviderCertificateView(APIView):
+    """
+    Returns the certificate data for a verified service provider.
+    Only accessible by verified providers.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+
+        if user.user_type != 'provider':
+            return Response(
+                {"error": "Only service providers can access certificates."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            profile = user.service_provider_profile
+        except ServiceProviderProfile.DoesNotExist:
+            return Response(
+                {"error": "Service provider profile not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        if profile.verification_status != 'verified':
+            return Response(
+                {
+                    "error": "Certificate is only available for verified providers.",
+                    "verification_status": profile.verification_status
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Build location string
+        location_parts = [
+            profile.business_city,
+            profile.business_state,
+            profile.business_country
+        ]
+        location_string = ", ".join(part for part in location_parts if part)
+
+        certificate_data = {
+            "business_name": profile.business_name or user.full_name or user.email,
+            "full_name": user.full_name,
+            "email": user.email,
+            "business_type": profile.business_type,
+            "business_city": profile.business_city,
+            "business_state": profile.business_state,
+            "business_country": profile.business_country,
+            "location_string": location_string,
+            "verified_at": profile.verified_at,
+            "provider_id": profile.id,
+            "verification_status": profile.verification_status,
+            "year": profile.verified_at.year if profile.verified_at else timezone.now().year,
+        }
+
+        return Response(certificate_data, status=status.HTTP_200_OK)
+
+
+class SendCertificateEmailView(APIView):
+    """
+    Accepts a base64-encoded certificate image from the frontend
+    and sends it as an email attachment to the authenticated provider.
+    Triggered when the provider downloads the certificate.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        import base64
+        from django.core.mail import EmailMessage
+
+        user = request.user
+
+        if user.user_type != 'provider':
+            return Response(
+                {"error": "Only service providers can send certificate emails."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            profile = user.service_provider_profile
+        except ServiceProviderProfile.DoesNotExist:
+            return Response(
+                {"error": "Service provider profile not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        if profile.verification_status != 'verified':
+            return Response(
+                {"error": "Certificate email is only for verified providers."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        image_data = request.data.get('image_data')
+        if not image_data:
+            return Response(
+                {"error": "Certificate image data is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            # Strip the data URL prefix if present
+            if ',' in image_data:
+                image_data = image_data.split(',', 1)[1]
+
+            image_bytes = base64.b64decode(image_data)
+        except Exception as e:
+            logger.error(f"Failed to decode certificate image: {e}")
+            return Response(
+                {"error": "Invalid image data."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        business_name = profile.business_name or user.full_name or "Partner"
+
+        # Build the email
+        subject = f"🎉 Your Umrah Chalo Founding Partner Certificate — {business_name}"
+
+        html_body = f"""
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #f5f5f5; margin: 0; padding: 20px; }}
+    .container {{ max-width: 600px; margin: 0 auto; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }}
+    .header {{ background: linear-gradient(135deg, #1a3d2e 0%, #2d6a4f 100%); padding: 40px 30px; text-align: center; }}
+    .header h1 {{ color: #c9a227; font-size: 28px; margin: 0 0 8px; }}
+    .header p {{ color: #a8d5b5; font-size: 14px; margin: 0; }}
+    .body {{ padding: 40px 30px; }}
+    .body h2 {{ color: #1a3d2e; font-size: 22px; }}
+    .body p {{ color: #555; line-height: 1.6; }}
+    .cert-note {{ background: #f0faf4; border-left: 4px solid #2d6a4f; padding: 16px 20px; border-radius: 8px; margin: 20px 0; }}
+    .cert-note p {{ margin: 0; color: #1a3d2e; font-size: 14px; }}
+    .cta-btn {{ display: inline-block; background: linear-gradient(135deg, #1a3d2e, #2d6a4f); color: white !important; padding: 14px 30px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 20px 0; }}
+    .instagram-btn {{ display: inline-block; background: linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045); color: white !important; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; margin: 8px 4px; }}
+    .footer {{ background: #1a3d2e; padding: 24px; text-align: center; }}
+    .footer p {{ color: #a8d5b5; font-size: 12px; margin: 4px 0; }}
+    .gold {{ color: #c9a227; }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🕌 Umrah Chalo</h1>
+      <p>YOUR JOURNEY, OUR RESPONSIBILITY</p>
+    </div>
+    <div class="body">
+      <h2>Congratulations, <span class="gold">{business_name}</span>! 🎉</h2>
+      <p>You are officially a <strong>Verified Founding Partner</strong> of Umrah Chalo — India's Trusted Umrah Marketplace.</p>
+
+      <div class="cert-note">
+        <p>📜 <strong>Your Founding Partner Certificate</strong> is attached to this email as an image. You can download it and share it proudly on your social media!</p>
+      </div>
+
+      <p>As a Founding Partner, you enjoy exclusive benefits:</p>
+      <ul style="color:#555; line-height:2;">
+        <li>✅ Trusted Network membership</li>
+        <li>✅ Verified Partner badge on your profile</li>
+        <li>✅ Priority listing in search results</li>
+        <li>✅ Dedicated Support team</li>
+        <li>✅ Marketing Support</li>
+        <li>✅ Growth Opportunities</li>
+      </ul>
+
+      <p>Share your achievement with the world! Download the certificate from the attachment and post it on Instagram using <strong>#UmrahChaloPartner</strong>.</p>
+
+      <p style="margin-top:30px;">Together, let's grow and serve more pilgrims better.</p>
+      <p>Warm regards,<br><strong style="color:#1a3d2e;">Team Umrah Chalo</strong></p>
+    </div>
+    <div class="footer">
+      <p>Proud Partner of India's Trusted Umrah Marketplace</p>
+      <p>© {timezone.now().year} Umrah Chalo. All rights reserved.</p>
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+        try:
+            from django.conf import settings as django_settings
+            email_message = EmailMessage(
+                subject=subject,
+                body=html_body,
+                from_email=django_settings.DEFAULT_FROM_EMAIL,
+                to=[user.email],
+            )
+            email_message.content_subtype = 'html'
+            email_message.attach(
+                f"umrahchalo_founding_partner_certificate_{profile.id}.png",
+                image_bytes,
+                'image/png'
+            )
+            email_message.send(fail_silently=False)
+
+            logger.info(f"Certificate email sent to {user.email} for provider {profile.id}")
+
+            # Log activity
+            UserActivity.objects.create(
+                user=user,
+                activity_type='data_export',
+                description='Provider downloaded and emailed their Founding Partner Certificate',
+                ip_address=get_client_ip(request),
+                metadata={'provider_id': profile.id}
+            )
+
+            return Response(
+                {"message": "Certificate email sent successfully to your registered email."},
+                status=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to send certificate email to {user.email}: {e}")
+            return Response(
+                {"error": "Failed to send certificate email. Please try again later."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
