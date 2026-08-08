@@ -250,6 +250,23 @@ class UserRegistrationView(generics.CreateAPIView):
 
         user = serializer.save()
 
+        # Generate JWT tokens for auto-login
+        refresh = RefreshToken.for_user(user)
+        access_token = str(refresh.access_token)
+        refresh_token = str(refresh)
+
+        # Create user session for analytics and security
+        try:
+            UserSession.objects.create(
+                user=user,
+                session_key=str(uuid.uuid4()),
+                device_info=get_user_agent(request),
+                ip_address=get_client_ip(request),
+                is_active=True
+            )
+        except Exception as e:
+            logger.error(f"Failed to create user session: {e}")
+
         # Log user activity
         try:
             UserActivity.objects.create(
@@ -272,10 +289,14 @@ class UserRegistrationView(generics.CreateAPIView):
             logger.error(f"Failed to send welcome notification: {sync_error}")
                  
         response_data = {
+            'success': True,
             'message': 'User registered successfully.',
-            'user_id': str(user.id),
-            'username': user.username,
-            'email': user.email
+            'user': UserProfileSerializer(user).data,
+            'tokens': {
+                'access': access_token,
+                'refresh': refresh_token
+            },
+            'redirect': '/'
         }
         
         if user.has_location:
@@ -839,6 +860,23 @@ class ServiceProviderRegistrationView(generics.CreateAPIView):
         provider = serializer.save()
         user = provider.user  # The related user object
 
+        # Generate JWT tokens for auto-login
+        refresh = RefreshToken.for_user(user)
+        access_token = str(refresh.access_token)
+        refresh_token = str(refresh)
+
+        # Create user session for analytics and security
+        try:
+            UserSession.objects.create(
+                user=user,
+                session_key=str(uuid.uuid4()),
+                device_info=get_user_agent(request),
+                ip_address=get_client_ip(request),
+                is_active=True
+            )
+        except Exception as e:
+            logger.error(f"Failed to create user session: {e}")
+
         # Log service provider activity
         try:
             UserActivity.objects.create(
@@ -852,21 +890,26 @@ class ServiceProviderRegistrationView(generics.CreateAPIView):
                 }
             )
         except Exception as e:
-            print(f"Failed to log activity: {e}")
+            logger.error(f"Failed to log activity: {e}")
 
         # Send welcome notification
         try:
-                NotificationService.send_welcome_notification(user)
-                logger.info(f"Welcome notification sent synchronously to {user.email}")
+            NotificationService.send_welcome_notification(user)
+            logger.info(f"Welcome notification sent synchronously to {user.email}")
         except Exception as sync_error:
-                 logger.error(f"Failed to send welcome notification synchronously: {sync_error}")
+            logger.error(f"Failed to send welcome notification synchronously: {sync_error}")
 
         # Prepare response
         response_data = {
-            'message': 'Service provider registered successfully. Please check your email for verification.',
+            'success': True,
+            'message': 'Service provider registered successfully.',
             'provider_id': provider.id,
-            'user_id': str(user.id),
-            'email': user.email
+            'user': UserProfileSerializer(user).data,
+            'tokens': {
+                'access': access_token,
+                'refresh': refresh_token
+            },
+            'redirect': '/main-layout'
         }
 
         if user.has_location:
