@@ -468,6 +468,7 @@ class ServiceProviderProfileSerializer(serializers.ModelSerializer):
     verification_status_display = serializers.CharField(source='get_verification_status_display', read_only=True)
     business_type_display = serializers.CharField(source='get_business_type_display', read_only=True)
     media = ProviderMediaSerializer(many=True, read_only=True)
+    active_plan = serializers.SerializerMethodField()
     
     class Meta:
         model = ServiceProviderProfile
@@ -481,7 +482,7 @@ class ServiceProviderProfileSerializer(serializers.ModelSerializer):
             'verification_status_display', 'verification_notes', 'verified_by',
             'verified_at', 'total_packages', 'total_leads', 'total_bookings',
             'experience_years', 'average_rating', 'total_reviews', 'is_active', 'is_featured',
-            'media', 'created_at', 'updated_at'
+            'media', 'active_plan', 'created_at', 'updated_at'
         ]
         read_only_fields = [
             'id', 'verification_status', 'verification_notes', 'verified_by',
@@ -498,6 +499,15 @@ class ServiceProviderProfileSerializer(serializers.ModelSerializer):
         if ServiceProviderProfile.objects.filter(business_email=value).exclude(id=self.instance.id if self.instance else None).exists():
             raise serializers.ValidationError("A service provider with this business email already exists.")
         return value
+
+    def get_active_plan(self, obj):
+        subscription = obj.get_active_subscription()
+        if subscription and subscription.plan:
+            return {
+                'plan_name': subscription.plan.name,
+                'plan_type': subscription.plan.plan_type,
+            }
+        return None
 
 class ServiceProviderListSerializer(serializers.ModelSerializer):
     """
