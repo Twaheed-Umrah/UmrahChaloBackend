@@ -484,8 +484,14 @@ class SubscriptionFeatureViewSet(viewsets.ModelViewSet):
         
         if not current_subscription:
             return Response(
-                {'message': 'No active subscription found'},
-                status=status.HTTP_404_NOT_FOUND
+                {
+                    'success': True,
+                    'has_active_subscription': False,
+                    'subscription': None,
+                    'features': [],
+                    'message': 'No active subscription found'
+                },
+                status=status.HTTP_200_OK
             )
         
         features = SubscriptionFeature.objects.filter(
