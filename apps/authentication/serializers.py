@@ -481,7 +481,7 @@ class ServiceProviderProfileSerializer(serializers.ModelSerializer):
             'trade_license_number', 'trade_license_document', 'verification_status',
             'verification_status_display', 'verification_notes', 'verified_by',
             'verified_at', 'total_packages', 'total_leads', 'total_bookings',
-            'experience_years', 'average_rating', 'total_reviews', 'is_active', 'is_featured',
+            'experience_years', 'average_rating', 'total_reviews', 'profile_views', 'is_active', 'is_featured',
             'media', 'active_plan', 'created_at', 'updated_at'
         ]
         read_only_fields = [

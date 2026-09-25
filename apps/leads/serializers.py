@@ -66,6 +66,27 @@ class LeadSerializer(serializers.ModelSerializer):
                 "Number of people must be at least 1"
             )
         
+
+        # Prevent duplicate leads from the same user for the same package/service within 15 minutes
+        user = self.context.get('request').user if self.context.get('request') else None
+        if user and user.is_authenticated:
+            # Check if there's a recent lead with the same package/service by this user
+            recent_leads = Lead.objects.filter(
+                user=user,
+                created_at__gte=timezone.now() - timezone.timedelta(minutes=15)
+            )
+            
+            if package:
+                recent_leads = recent_leads.filter(package=package)
+            elif service:
+                recent_leads = recent_leads.filter(service=service)
+                
+            # If lead_type is not custom, block if recent lead exists
+            if lead_type != 'custom' and recent_leads.exists():
+                raise serializers.ValidationError(
+                    "You have already submitted an inquiry for this recently. Please wait 15 minutes before submitting again."
+                )
+
         return data
     
     def get_target_business_types(self, lead):
@@ -315,6 +336,27 @@ class LeadCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Preferred date cannot be in the past."
             )
+
+
+        # Prevent duplicate leads from the same user for the same package/service within 15 minutes
+        user = self.context.get('request').user if self.context.get('request') else None
+        if user and user.is_authenticated:
+            # Check if there's a recent lead with the same package/service by this user
+            recent_leads = Lead.objects.filter(
+                user=user,
+                created_at__gte=timezone.now() - timezone.timedelta(minutes=15)
+            )
+            
+            if package:
+                recent_leads = recent_leads.filter(package=package)
+            elif service:
+                recent_leads = recent_leads.filter(service=service)
+                
+            # If lead_type is not custom, block if recent lead exists
+            if lead_type != 'custom' and recent_leads.exists():
+                raise serializers.ValidationError(
+                    "You have already submitted an inquiry for this recently. Please wait 15 minutes before submitting again."
+                )
 
         return data
 

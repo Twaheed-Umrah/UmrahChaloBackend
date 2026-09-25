@@ -235,10 +235,19 @@ class PackageViewSet(viewsets.ModelViewSet):
         """Retrieve package and increment view count"""
         instance = self.get_object()
         
-        # Increment view count
-        Package.objects.filter(id=instance.id).update(
-            views_count=F('views_count') + 1
-        )
+        # Increment view count with debounce
+        from apps.core.utils import get_client_ip
+        from django.core.cache import cache
+        
+        user_identifier = request.user.id if request.user.is_authenticated else get_client_ip(request)
+        cache_key = f"package_view_{instance.id}_{user_identifier}"
+        
+        if not cache.get(cache_key):
+            Package.objects.filter(id=instance.id).update(
+                views_count=F('views_count') + 1
+            )
+            # Cache for 1 hour (3600 seconds)
+            cache.set(cache_key, True, 3600)
         
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
@@ -678,6 +687,20 @@ class PublicPackageDetailView(APIView):
 
         try:
             package = Package.objects.get(id=package_id)  # 👈 no role-based filter
+            
+            # Increment view count with debounce
+            from apps.core.utils import get_client_ip
+            from django.core.cache import cache
+            
+            user_identifier = request.user.id if request.user.is_authenticated else get_client_ip(request)
+            cache_key = f"package_view_{package.id}_{user_identifier}"
+            
+            if not cache.get(cache_key):
+                Package.objects.filter(id=package.id).update(views_count=F('views_count') + 1)
+                package.refresh_from_db()
+                # Cache for 1 hour (3600 seconds)
+                cache.set(cache_key, True, 3600)
+            
             serializer = PackageDetailSerializer(package, context={'request': request})
             return Response(serializer.data, status=status.HTTP_200_OK)
 

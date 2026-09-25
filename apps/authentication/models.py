@@ -269,6 +269,7 @@ class ServiceProviderProfile(models.Model):
     total_packages = models.IntegerField(default=0)
     total_leads = models.IntegerField(default=0)
     total_bookings = models.IntegerField(default=0)
+    profile_views = models.IntegerField(default=0)
     # Experience in years (editable by provider)
     experience_years = models.IntegerField(default=0)
     average_rating = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)

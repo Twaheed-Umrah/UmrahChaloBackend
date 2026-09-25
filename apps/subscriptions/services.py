@@ -111,7 +111,7 @@ class CreditService:
     def deduct_lead_credits(provider, lead=None, user=None):
         """
         Consolidated method for deducting credits for leads and contact views.
-        Deducts 4 credits.
+        Deducts 2 credits.
         """
         # 1. Implementation Safety Checks
         has_growth = Subscription.objects.filter(
@@ -127,17 +127,17 @@ class CreditService:
 
         # 2. Deduct Credits
         wallet, created = CreditWallet.objects.get_or_create(user=provider.user)
-        if wallet.balance < 4:
+        if wallet.balance < 2:
             return False, "Insufficient credits."
         
-        wallet.balance -= 4
+        wallet.balance -= 2
         wallet.save()
 
         # 3. Create Transaction record
         description = f"Lead deduction for lead #{lead.id if lead else 'Contact View'}"
         CreditTransaction.objects.create(
             wallet=wallet,
-            amount=-4, # Changed to negative as it's a deduction
+            amount=-2, # Changed to negative as it's a deduction
             action='lead_or_view', # Consolidated action type
             metadata={
                 'lead_id': str(lead.id) if lead else None,

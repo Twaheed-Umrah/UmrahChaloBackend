@@ -11,7 +11,7 @@ from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django.shortcuts import get_object_or_404
-from django.db.models import Q
+from django.db.models import Q, F
 from datetime import timedelta
 import uuid
 from .models import (
@@ -926,6 +926,25 @@ class ServiceProviderPublicDetailView(generics.RetrieveAPIView):
     serializer_class = ServiceProviderProfileSerializer
     permission_classes = [permissions.AllowAny]
     lookup_field = 'id'
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        
+        # Increment profile views with debounce
+        from apps.core.utils import get_client_ip
+        from django.core.cache import cache
+        
+        user_identifier = request.user.id if request.user.is_authenticated else get_client_ip(request)
+        cache_key = f"profile_view_{instance.pk}_{user_identifier}"
+        
+        if not cache.get(cache_key):
+            ServiceProviderProfile.objects.filter(pk=instance.pk).update(profile_views=F('profile_views') + 1)
+            instance.refresh_from_db()
+            # Cache for 1 hour (3600 seconds)
+            cache.set(cache_key, True, 3600)
+        
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
 
 
 class ServiceProviderListView(generics.ListAPIView):
