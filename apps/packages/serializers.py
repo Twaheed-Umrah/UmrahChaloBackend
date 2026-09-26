@@ -166,7 +166,7 @@ class PackageListSerializer(serializers.ModelSerializer):
             'provider', 'base_price', 'discounted_price', 'final_price',
             'duration_days', 'start_date', 'end_date', 'booking_deadline',
             'max_capacity', 'current_bookings', 'availability_percentage',
-            'city', 'state', 'country',
+            'city', 'state', 'country', 'departure_city', 'group_departure_dates',
             'is_available', 'status', 'featured_image', 'rating',
             'reviews_count', 'views_count', 'leads_count', 'is_featured',
             'is_active', 'package_services', 'inclusions', 'exclusions',
