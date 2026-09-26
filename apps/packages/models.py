@@ -64,6 +64,10 @@ class Package(models.Model):
     max_capacity = models.PositiveIntegerField(default=50)
     current_bookings = models.PositiveIntegerField(default=0)
 
+    # Added fields
+    departure_city = models.CharField(max_length=100, blank=True, help_text="City of departure")
+    group_departure_dates = models.JSONField(default=list, blank=True, help_text="List of group departure dates")
+
     city = models.CharField(max_length=100, blank=True)
     state = models.CharField(max_length=100, blank=True)
     country = models.CharField(max_length=100, default='India')

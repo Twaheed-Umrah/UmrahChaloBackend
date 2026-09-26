@@ -250,7 +250,7 @@ class PackageCreateUpdateSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'short_description', 'description', 'features', 'package_type', 'package_category', 
             'base_price', 'discounted_price', 'duration_days', 'start_date', 
-            'end_date', 'city', 'state', 'country',
+            'end_date', 'city', 'state', 'country', 'departure_city', 'group_departure_dates',
             'booking_deadline', 'max_capacity', 'featured_image',
             'is_active', 'services', 'inclusions', 'exclusions',
             'itineraries', 'policies', 'availabilities', 'uploaded_images', 'video'
@@ -343,6 +343,14 @@ class PackageCreateUpdateSerializer(serializers.ModelSerializer):
         
         with transaction.atomic():
             # Create package
+            # Handle group_departure_dates if provided as string
+            if 'group_departure_dates' in validated_data and isinstance(validated_data['group_departure_dates'], str):
+                try:
+                    import json
+                    validated_data['group_departure_dates'] = json.loads(validated_data['group_departure_dates'])
+                except:
+                    validated_data['group_departure_dates'] = []
+
             package = Package.objects.create(**validated_data)
             
             # Create related objects
@@ -368,6 +376,14 @@ class PackageCreateUpdateSerializer(serializers.ModelSerializer):
         
         with transaction.atomic():
             # Update package
+            # Handle group_departure_dates if provided as string
+            if 'group_departure_dates' in validated_data and isinstance(validated_data['group_departure_dates'], str):
+                try:
+                    import json
+                    validated_data['group_departure_dates'] = json.loads(validated_data['group_departure_dates'])
+                except:
+                    pass
+
             for attr, value in validated_data.items():
                 setattr(instance, attr, value)
             instance.save()
