@@ -298,11 +298,11 @@ class ServiceProviderProfile(models.Model):
     def update_stats(self):
         """Update provider statistics for lead generation metrics"""
         from apps.packages.models import Package
-        from apps.leads.models import Lead
+        from apps.leads.models import Lead, LeadDistribution
         from apps.reviews.models import Review
         
         self.total_packages = Package.objects.filter(provider=self).count()
-        self.total_leads = Lead.objects.filter(provider=self).count()
+        self.total_leads = LeadDistribution.objects.filter(provider=self).count()
         
         reviews = Review.objects.filter(provider=self)
         if reviews.exists():

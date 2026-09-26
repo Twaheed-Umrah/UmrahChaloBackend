@@ -475,6 +475,15 @@ class LeadInteractionViewSet(viewsets.ModelViewSet):
                 provider=self.request.user.service_provider_profile
             ).select_related('lead', 'provider')
         return LeadInteraction.objects.none()
+
+    def perform_create(self, serializer):
+        """
+        Set provider automatically on creation
+        """
+        if hasattr(self.request.user, 'service_provider_profile'):
+            serializer.save(provider=self.request.user.service_provider_profile)
+        else:
+            serializer.save()
     
     @action(detail=False, methods=['get'])
     def follow_ups(self, request):

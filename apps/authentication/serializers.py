@@ -469,6 +469,7 @@ class ServiceProviderProfileSerializer(serializers.ModelSerializer):
     business_type_display = serializers.CharField(source='get_business_type_display', read_only=True)
     media = ProviderMediaSerializer(many=True, read_only=True)
     active_plan = serializers.SerializerMethodField()
+    total_contact_views = serializers.SerializerMethodField()
     
     class Meta:
         model = ServiceProviderProfile
@@ -480,7 +481,7 @@ class ServiceProviderProfileSerializer(serializers.ModelSerializer):
             'government_id_document', 'gst_number', 'gst_certificate',
             'trade_license_number', 'trade_license_document', 'verification_status',
             'verification_status_display', 'verification_notes', 'verified_by',
-            'verified_at', 'total_packages', 'total_leads', 'total_bookings',
+            'verified_at', 'total_packages', 'total_leads', 'total_contact_views', 'total_bookings',
             'experience_years', 'average_rating', 'total_reviews', 'profile_views', 'is_active', 'is_featured',
             'media', 'active_plan', 'created_at', 'updated_at'
         ]
@@ -508,6 +509,10 @@ class ServiceProviderProfileSerializer(serializers.ModelSerializer):
                 'plan_type': subscription.plan.plan_type,
             }
         return None
+
+    def get_total_contact_views(self, obj):
+        from apps.leads.models import LeadDistribution
+        return LeadDistribution.objects.filter(provider=obj, lead__lead_type='contact_view').count()
 
 class ServiceProviderListSerializer(serializers.ModelSerializer):
     """

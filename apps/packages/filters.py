@@ -13,6 +13,16 @@ class PackageFilter(django_filters.FilterSet):
         lookup_expr='icontains'
     )
     
+    departure_city = django_filters.CharFilter(
+        field_name='departure_city',
+        lookup_expr='icontains'
+    )
+
+    group_departure_dates_contains = django_filters.CharFilter(
+        field_name='group_departure_dates',
+        lookup_expr='icontains'
+    )
+    
     package_type = django_filters.ChoiceFilter(
         field_name='package_type',
         choices=Package.PACKAGE_TYPES
@@ -142,7 +152,7 @@ class PackageFilter(django_filters.FilterSet):
         model = Package
         fields = [
             'name', 'package_type', 'status', 'is_featured',
-            'provider_id', 'is_available'
+            'provider_id', 'is_available', 'departure_city', 'group_departure_dates_contains'
         ]
     
     def filter_min_price(self, queryset, name, value):

@@ -1876,10 +1876,12 @@ def dashboard_stats(request):
     if user.user_type == 'provider':
         try:
             provider = user.serviceproviderprofile
+            from apps.leads.models import LeadDistribution
             stats = {
                 'total_packages': provider.total_packages,
                 'active_packages': provider.active_packages,
                 'total_leads': provider.total_leads,
+                'total_contact_views': LeadDistribution.objects.filter(provider=provider, lead__lead_type='contact_view').count(),
                 'total_bookings': provider.total_bookings,
                 'pending_bookings': provider.pending_bookings,
                 'completed_bookings': provider.completed_bookings,
