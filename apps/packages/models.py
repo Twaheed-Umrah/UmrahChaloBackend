@@ -26,6 +26,7 @@ class Package(models.Model):
     ]
 
     PACKAGE_CATEGORY_CHOICES = [
+        ('luxury', 'Luxury'),
         ('deluxe', 'Deluxe'),
         ('semi-deluxe', 'Semi-Deluxe'),
         ('economy', 'Economy'),
