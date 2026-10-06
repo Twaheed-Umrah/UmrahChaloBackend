@@ -1,9 +1,55 @@
+from datetime import timedelta
+
 from django import forms
 from django.contrib import admin
 from django.core.exceptions import ValidationError
+from django.db.models import Q
+from django.utils import timezone
 from django.utils.html import format_html
 
 from .models import Airport, AirportAttendant, AirportAttendantBooking
+
+
+class AirportAttendantBookingAdminForm(forms.ModelForm):
+    class Meta:
+        model = AirportAttendantBooking
+        fields = '__all__'
+
+    def clean(self):
+        cleaned_data = super().clean()
+        airport = cleaned_data.get('airport')
+        attendant = cleaned_data.get('attendant')
+        service_date = cleaned_data.get('service_date')
+        service_time = cleaned_data.get('service_time')
+        status = cleaned_data.get('status')
+
+        if attendant and airport and attendant.airport_id != airport.id:
+            self.add_error('attendant', 'Choose an attendant assigned to the selected airport.')
+            return cleaned_data
+
+        if not attendant or not service_date or not service_time:
+            return cleaned_data
+
+        active_bookings = AirportAttendantBooking.objects.filter(
+            attendant=attendant,
+            service_date=service_date,
+            service_time=service_time,
+        ).filter(
+            Q(status=AirportAttendantBooking.Status.CONFIRMED)
+            | Q(
+                status=AirportAttendantBooking.Status.AWAITING_PAYMENT,
+                created_at__gte=timezone.now() - timedelta(minutes=15),
+            )
+        )
+        if self.instance.pk:
+            active_bookings = active_bookings.exclude(pk=self.instance.pk)
+        if active_bookings.exists() and status in (
+            AirportAttendantBooking.Status.CONFIRMED,
+            AirportAttendantBooking.Status.AWAITING_PAYMENT,
+        ):
+            self.add_error('attendant', 'This attendant is already assigned to another booking at this date and time.')
+
+        return cleaned_data
 
 
 class AirportAttendantAdminForm(forms.ModelForm):
@@ -91,6 +137,7 @@ class AirportAttendantAdmin(admin.ModelAdmin):
 
 @admin.register(AirportAttendantBooking)
 class AirportAttendantBookingAdmin(admin.ModelAdmin):
+    form = AirportAttendantBookingAdminForm
     list_display = (
         'id',
         'provider',
@@ -113,14 +160,33 @@ class AirportAttendantBookingAdmin(admin.ModelAdmin):
     )
     ordering = ('-created_at',)
     date_hierarchy = 'service_date'
-    readonly_fields = tuple(field.name for field in AirportAttendantBooking._meta.fields)
+    readonly_fields = (
+        'provider',
+        'amount',
+        'payment',
+        'status',
+        'created_at',
+        'updated_at',
+    )
+    fields = (
+        'provider',
+        'airport',
+        'attendant',
+        'service_date',
+        'service_time',
+        'flight_name',
+        'flight_number',
+        'pilgrim_count',
+        'amount',
+        'status',
+        'payment',
+        'created_at',
+        'updated_at',
+    )
 
     @admin.display(description='Payment status')
     def payment_status(self, booking):
         return booking.payment.status if booking.payment_id else 'Not started'
 
     def has_add_permission(self, request):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
         return False
