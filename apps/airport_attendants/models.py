@@ -30,6 +30,11 @@ class AirportAttendant(models.Model):
     phone = models.CharField(max_length=20)
     alternate_phone = models.CharField(max_length=20, blank=True)
     email = models.EmailField(blank=True)
+    profile_image = models.ImageField(
+        upload_to='airport_attendants/profiles/',
+        validators=[FileExtensionValidator(['jpg', 'jpeg', 'png', 'webp'])],
+        blank=True,
+    )
     pan_document = models.FileField(
         upload_to='airport_attendants/pan/',
         storage=private_kyc_storage,

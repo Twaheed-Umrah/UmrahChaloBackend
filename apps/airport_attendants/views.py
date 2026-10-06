@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.permissions import IsAdminOrSuperAdmin, IsServiceProvider
+from apps.payments.models import Payment, PaymentTransaction
 from .models import Airport, AirportAttendant, AirportAttendantBooking
 from .serializers import (
     AirportAttendantBookingCreateSerializer,
@@ -135,6 +136,46 @@ class ProviderBookingListCreateView(generics.ListCreateAPIView):
         return Response(
             AirportAttendantBookingSerializer(booking).data,
             status=status.HTTP_201_CREATED,
+        )
+
+
+class ProviderBookingCancelView(APIView):
+    permission_classes = [IsServiceProvider]
+
+    def post(self, request, booking_id):
+        with transaction.atomic():
+            booking = get_object_or_404(
+                AirportAttendantBooking.objects.select_for_update().select_related('airport'),
+                pk=booking_id,
+                provider=request.user,
+            )
+            if booking.status not in (
+                AirportAttendantBooking.Status.AWAITING_PAYMENT,
+                AirportAttendantBooking.Status.CONFIRMED,
+            ):
+                raise ValidationError({'status': 'This booking cannot be cancelled.'})
+
+            if booking.payment_id:
+                payment = Payment.objects.select_for_update().get(pk=booking.payment_id)
+                if payment.status in ('pending', 'processing'):
+                    payment.status = 'failed'
+                    payment.failed_at = timezone.now()
+                    payment.save(update_fields=['status', 'failed_at', 'updated_at'])
+                    PaymentTransaction.objects.create(
+                        payment=payment,
+                        transaction_type='payment',
+                        amount=payment.total_amount,
+                        currency=payment.currency,
+                        status='failed',
+                        description='Airport attendant booking cancelled by provider before payment completed.',
+                    )
+
+            booking.status = AirportAttendantBooking.Status.CANCELLED
+            booking.save(update_fields=['status', 'updated_at'])
+
+        return Response(
+            AirportAttendantBookingSerializer(booking).data,
+            status=status.HTTP_200_OK,
         )
 
 

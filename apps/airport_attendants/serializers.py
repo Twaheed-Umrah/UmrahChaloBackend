@@ -17,18 +17,27 @@ class AirportAttendantSerializer(serializers.ModelSerializer):
     airport_name = serializers.CharField(source='airport.name', read_only=True)
     pan_document_exists = serializers.SerializerMethodField()
     aadhaar_document_exists = serializers.SerializerMethodField()
+    profile_image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = AirportAttendant
         fields = [
             'id', 'airport', 'airport_name', 'name', 'phone', 'alternate_phone', 'email',
-            'pan_document', 'aadhaar_document', 'pan_document_exists',
+            'profile_image', 'profile_image_url', 'pan_document', 'aadhaar_document', 'pan_document_exists',
             'aadhaar_document_exists', 'is_active',
         ]
         extra_kwargs = {
+            'profile_image': {'required': False},
             'pan_document': {'write_only': True, 'required': False},
             'aadhaar_document': {'write_only': True, 'required': False},
         }
+
+    def get_profile_image_url(self, obj):
+        if not obj.profile_image:
+            return None
+        request = self.context.get('request')
+        image_url = obj.profile_image.url
+        return request.build_absolute_uri(image_url) if request else image_url
 
     def get_pan_document_exists(self, obj):
         return bool(obj.pan_document)
@@ -51,6 +60,11 @@ class AirportAttendantSerializer(serializers.ModelSerializer):
 
     def validate_aadhaar_document(self, document):
         return self._validate_kyc_document(document)
+
+    def validate_profile_image(self, image):
+        if image.size > 5 * 1024 * 1024:
+            raise serializers.ValidationError('Profile images must be 5 MB or smaller.')
+        return image
 
     @staticmethod
     def _validate_kyc_document(document):
@@ -98,6 +112,7 @@ class AirportAttendantBookingSerializer(serializers.ModelSerializer):
     attendant_name = serializers.SerializerMethodField()
     attendant_phone = serializers.SerializerMethodField()
     attendant_alternate_phone = serializers.SerializerMethodField()
+    attendant_profile_image_url = serializers.SerializerMethodField()
     payment_status = serializers.CharField(source='payment.status', read_only=True, default=None)
     provider_name = serializers.CharField(source='provider.full_name', read_only=True)
     provider_phone = serializers.CharField(source='provider.phone', read_only=True)
@@ -110,10 +125,19 @@ class AirportAttendantBookingSerializer(serializers.ModelSerializer):
             'airport_name', 'service_date', 'service_time', 'flight_name',
             'flight_number', 'pilgrim_count', 'amount', 'status', 'payment_status',
             'attendant_name', 'attendant_phone', 'attendant_alternate_phone', 'created_at',
+            'attendant_profile_image_url',
         ]
 
     def _attendant_after_payment(self, obj):
-        return obj.attendant if obj.payment_id and obj.payment.status == 'completed' else None
+        return (
+            obj.attendant
+            if (
+                obj.status == AirportAttendantBooking.Status.CONFIRMED
+                and obj.payment_id
+                and obj.payment.status == 'completed'
+            )
+            else None
+        )
 
     def get_status(self, obj):
         from datetime import timedelta
@@ -137,6 +161,14 @@ class AirportAttendantBookingSerializer(serializers.ModelSerializer):
     def get_attendant_alternate_phone(self, obj):
         attendant = self._attendant_after_payment(obj)
         return attendant.alternate_phone if attendant else None
+
+    def get_attendant_profile_image_url(self, obj):
+        attendant = self._attendant_after_payment(obj)
+        if not attendant or not attendant.profile_image:
+            return None
+        request = self.context.get('request')
+        image_url = attendant.profile_image.url
+        return request.build_absolute_uri(image_url) if request else image_url
 
 
 class AdminAirportAttendantBookingSerializer(AirportAttendantBookingSerializer):
@@ -178,12 +210,15 @@ class AdminAirportAttendantBookingSerializer(AirportAttendantBookingSerializer):
         attendant = obj.attendant
         if not attendant:
             return None
+        image_url = attendant.profile_image.url if attendant.profile_image else None
+        request = self.context.get('request')
         return {
             'id': attendant.id,
             'name': attendant.name,
             'phone': attendant.phone,
             'alternate_phone': attendant.alternate_phone,
             'email': attendant.email,
+            'profile_image_url': request.build_absolute_uri(image_url) if request and image_url else image_url,
             'is_active': attendant.is_active,
             'pan_document_exists': bool(attendant.pan_document),
             'aadhaar_document_exists': bool(attendant.aadhaar_document),

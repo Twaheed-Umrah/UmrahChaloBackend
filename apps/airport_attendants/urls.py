@@ -9,6 +9,7 @@ from .views import (
     AdminBookingListView,
     AdminBookingDetailView,
     AirportListView,
+    ProviderBookingCancelView,
     ProviderBookingListCreateView,
 )
 
@@ -17,6 +18,7 @@ app_name = 'airport_attendants'
 urlpatterns = [
     path('airports/', AirportListView.as_view(), name='airport-list'),
     path('bookings/', ProviderBookingListCreateView.as_view(), name='provider-bookings'),
+    path('bookings/<int:booking_id>/cancel/', ProviderBookingCancelView.as_view(), name='provider-booking-cancel'),
     path('admin/airports/', AdminAirportListCreateView.as_view(), name='admin-airports'),
     path('admin/airports/<int:pk>/', AdminAirportDetailView.as_view(), name='admin-airport-detail'),
     path('admin/attendants/', AdminAttendantListCreateView.as_view(), name='admin-attendants'),

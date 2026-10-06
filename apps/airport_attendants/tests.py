@@ -1,9 +1,11 @@
+from io import BytesIO
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 from rest_framework.test import APITestCase
+from PIL import Image
 
 from apps.payments.models import Payment, PaymentMethod
 from .models import Airport, AirportAttendant, AirportAttendantBooking
@@ -109,6 +111,47 @@ class AirportAttendantBookingTests(APITestCase):
         self.assertEqual(booking_data['attendant_phone'], self.attendant.phone)
         self.assertEqual(booking_data['attendant_alternate_phone'], self.attendant.alternate_phone)
 
+    def test_provider_receives_attendant_profile_image_only_after_payment(self):
+        image_file = BytesIO()
+        Image.new('RGB', (1, 1), color='green').save(image_file, format='JPEG')
+        self.attendant.profile_image = SimpleUploadedFile(
+            'attendant.jpg',
+            image_file.getvalue(),
+            content_type='image/jpeg',
+        )
+        self.attendant.save(update_fields=['profile_image'])
+        self.addCleanup(self.attendant.profile_image.delete, save=False)
+        booking_response = self.client.post(
+            '/api/v1/airport-attendants/bookings/',
+            self.booking_payload(),
+            format='json',
+        )
+        booking = AirportAttendantBooking.objects.get(pk=booking_response.data['id'])
+
+        unpaid_response = self.client.get('/api/v1/airport-attendants/bookings/')
+        unpaid_booking = unpaid_response.data['results'][0] if 'results' in unpaid_response.data else unpaid_response.data[0]
+        self.assertIsNone(unpaid_booking['attendant_profile_image_url'])
+
+        payment_method, _ = PaymentMethod.objects.get_or_create(
+            type='razorpay',
+            defaults={'name': 'Razorpay', 'is_active': True},
+        )
+        payment = Payment.objects.create(
+            user=self.provider,
+            payment_method=payment_method,
+            amount='2500.00',
+            total_amount='2500.00',
+            purpose='airport_attendant',
+            status='completed',
+        )
+        booking.payment = payment
+        booking.status = AirportAttendantBooking.Status.CONFIRMED
+        booking.save(update_fields=['payment', 'status', 'updated_at'])
+
+        paid_response = self.client.get('/api/v1/airport-attendants/bookings/')
+        paid_booking = paid_response.data['results'][0] if 'results' in paid_response.data else paid_response.data[0]
+        self.assertTrue(paid_booking['attendant_profile_image_url'].endswith('/media/airport_attendants/profiles/attendant.jpg'))
+
     def test_same_attendant_cannot_be_booked_twice_for_exact_date_and_time(self):
         first_response = self.client.post(
             '/api/v1/airport-attendants/bookings/',
@@ -139,6 +182,97 @@ class AirportAttendantBookingTests(APITestCase):
 
         self.assertEqual(first_response.status_code, 201)
         self.assertEqual(second_response.status_code, 201)
+
+    def test_provider_can_cancel_paid_booking_without_refunding_payment(self):
+        booking_response = self.client.post(
+            '/api/v1/airport-attendants/bookings/',
+            self.booking_payload(),
+            format='json',
+        )
+        booking = AirportAttendantBooking.objects.get(pk=booking_response.data['id'])
+        payment_method, _ = PaymentMethod.objects.get_or_create(
+            type='razorpay',
+            defaults={'name': 'Razorpay', 'is_active': True},
+        )
+        payment = Payment.objects.create(
+            user=self.provider,
+            payment_method=payment_method,
+            amount='2500.00',
+            total_amount='2500.00',
+            purpose='airport_attendant',
+            status='completed',
+        )
+        booking.payment = payment
+        booking.status = AirportAttendantBooking.Status.CONFIRMED
+        booking.save(update_fields=['payment', 'status', 'updated_at'])
+
+        response = self.client.post(
+            f'/api/v1/airport-attendants/bookings/{booking.id}/cancel/',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['status'], AirportAttendantBooking.Status.CANCELLED)
+        self.assertIsNone(response.data['attendant_name'])
+        self.assertIsNone(response.data['attendant_phone'])
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, 'completed')
+
+    def test_cancelling_pending_booking_fails_payment_and_releases_attendant(self):
+        booking_response = self.client.post(
+            '/api/v1/airport-attendants/bookings/',
+            self.booking_payload(),
+            format='json',
+        )
+        booking = AirportAttendantBooking.objects.get(pk=booking_response.data['id'])
+        payment_method, _ = PaymentMethod.objects.get_or_create(
+            type='razorpay',
+            defaults={'name': 'Razorpay', 'is_active': True},
+        )
+        payment = Payment.objects.create(
+            user=self.provider,
+            payment_method=payment_method,
+            amount='2500.00',
+            total_amount='2500.00',
+            purpose='airport_attendant',
+            status='pending',
+        )
+        booking.payment = payment
+        booking.save(update_fields=['payment', 'updated_at'])
+
+        cancel_response = self.client.post(
+            f'/api/v1/airport-attendants/bookings/{booking.id}/cancel/',
+        )
+        next_booking_response = self.client.post(
+            '/api/v1/airport-attendants/bookings/',
+            self.booking_payload(),
+            format='json',
+        )
+
+        self.assertEqual(cancel_response.status_code, 200)
+        self.assertEqual(next_booking_response.status_code, 201)
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, 'failed')
+
+    def test_provider_cannot_cancel_another_providers_booking(self):
+        booking_response = self.client.post(
+            '/api/v1/airport-attendants/bookings/',
+            self.booking_payload(),
+            format='json',
+        )
+        other_provider = User.objects.create_user(
+            username='other-airport-provider',
+            email='other-provider@example.com',
+            password='safe-test-password',
+            user_type='provider',
+            phone='+919876543212',
+        )
+        self.client.force_authenticate(user=other_provider)
+
+        response = self.client.post(
+            f"/api/v1/airport-attendants/bookings/{booking_response.data['id']}/cancel/",
+        )
+
+        self.assertEqual(response.status_code, 404)
 
     def test_admin_booking_detail_includes_provider_and_payment_details(self):
         booking_response = self.client.post(
