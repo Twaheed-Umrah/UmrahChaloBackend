@@ -16,6 +16,7 @@ api_patterns = [
     path('banner/', include('apps.banners.urls')),
     path('core/', include('apps.core.urls')),
     path('inquiries/', include('apps.inquiries.urls')),
+    path('airport-attendants/', include('apps.airport_attendants.urls')),
 ]
 
 

@@ -36,6 +36,7 @@ from .utils import PaymentGatewayManager
 import logging
 from apps.notifications.services import NotificationService
 from apps.subscriptions.services import CreditService
+from apps.airport_attendants.models import AirportAttendantBooking
 logger = logging.getLogger(__name__)
 
 class PaymentMethodListView(generics.ListAPIView):
@@ -79,7 +80,26 @@ class PaymentCreateView(generics.CreateAPIView):
         # Override the request data
         data = request.data.copy()
         data['payment_method'] = gateway_type
-        
+
+        if data.get('purpose') == 'airport_attendant':
+            booking_id = data.get('airport_attendant_booking')
+            try:
+                booking = AirportAttendantBooking.objects.get(
+                    pk=booking_id,
+                    provider=user,
+                    status=AirportAttendantBooking.Status.AWAITING_PAYMENT,
+                    payment__isnull=True,
+                    created_at__gte=timezone.now() - timedelta(minutes=15),
+                )
+            except (AirportAttendantBooking.DoesNotExist, TypeError, ValueError):
+                return Response(
+                    {'error': 'This airport attendant booking is invalid or has expired.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            data['amount'] = str(booking.amount)
+            data['currency'] = 'INR'
+            data['description'] = f'Airport attendant service at {booking.airport.name}'
+
         # Convert amount if paypal
         if not is_india:
             amount_inr = float(data.get('amount', 0))
@@ -117,6 +137,10 @@ class PaymentCreateView(generics.CreateAPIView):
             payment.status = 'failed'
             payment.failed_at = timezone.now()
             payment.save()
+            if payment.purpose == 'airport_attendant':
+                AirportAttendantBooking.objects.filter(payment=payment).update(
+                    status=AirportAttendantBooking.Status.CANCELLED
+                )
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 class PaymentListView(generics.ListAPIView):
@@ -253,8 +277,14 @@ def verify_payment(request, payment_id):
                     description=f'Payment verification successful for {payment.purpose}'
                 )
                 
-                # Handle subscription activation/creation
-                subscription_result = handle_subscription_update(payment, request.user)
+                # Complete the airport booking rather than running subscription logic.
+                if payment.purpose == 'airport_attendant':
+                    booking = get_object_or_404(AirportAttendantBooking, payment=payment)
+                    booking.status = AirportAttendantBooking.Status.CONFIRMED
+                    booking.save(update_fields=['status', 'updated_at'])
+                    subscription_result = None
+                else:
+                    subscription_result = handle_subscription_update(payment, request.user)
                 
                 transaction.on_commit(
                     lambda: NotificationService.send_payment_success_notification(payment)
@@ -273,6 +303,10 @@ def verify_payment(request, payment_id):
                 payment.failed_at = timezone.now()
                 payment.gateway_response = verification_result
                 payment.save()
+                if payment.purpose == 'airport_attendant':
+                    AirportAttendantBooking.objects.filter(payment=payment).update(
+                        status=AirportAttendantBooking.Status.CANCELLED
+                    )
                 
                 # Create failed transaction record
                 PaymentTransaction.objects.create(
@@ -725,6 +759,10 @@ def process_payment_failed(payment_data):
         payment.status = 'failed'
         payment.failed_at = timezone.now()
         payment.save()
+        if payment.purpose == 'airport_attendant':
+            AirportAttendantBooking.objects.filter(payment=payment).update(
+                status=AirportAttendantBooking.Status.CANCELLED
+            )
         try:
             NotificationService.send_payment_failed_notification(payment)
         except Exception as e:
@@ -1084,6 +1122,10 @@ def cancel_payment(request, payment_id):
         payment.status = 'failed'
         payment.failed_at = timezone.now()
         payment.save()
+        if payment.purpose == 'airport_attendant':
+            AirportAttendantBooking.objects.filter(payment=payment).update(
+                status=AirportAttendantBooking.Status.CANCELLED
+            )
         
         # Create transaction record
         PaymentTransaction.objects.create(

@@ -27,7 +27,7 @@ class User(AbstractUser):
     ]
     
     full_name = models.CharField(max_length=255, blank=True, null=True)
-    email = models.EmailField(unique=True)
+    email = models.EmailField(unique=True, blank=True, null=True)
     phone = models.CharField(unique=True,max_length=15, blank=True, null=True)
     user_type = models.CharField(max_length=20, choices=USER_TYPES, default='pilgrim')
     is_verified = models.BooleanField(default=False)
@@ -70,7 +70,7 @@ class User(AbstractUser):
         verbose_name_plural = 'Users'
 
     def __str__(self):
-        return f"{self.email} - {self.user_type}"
+        return f"{self.email or self.phone or self.username} - {self.user_type}"
 
     def save(self, *args, **kwargs):
         if not self.username and self.full_name:
@@ -170,7 +170,8 @@ class LoginAttempt(models.Model):
     """
     Model to track login attempts for security
     """
-    email = models.EmailField()
+    email = models.EmailField(blank=True, null=True)
+    phone = models.CharField(max_length=15, blank=True, null=True)
     ip_address = models.GenericIPAddressField()
     user_agent = models.TextField(blank=True)
     success = models.BooleanField(default=False)
@@ -182,7 +183,7 @@ class LoginAttempt(models.Model):
         verbose_name_plural = 'Login Attempts'
     
     def __str__(self):
-        return f"Login attempt for {self.email} - {'Success' if self.success else 'Failed'}"
+        return f"Login attempt for {self.email or self.phone} - {'Success' if self.success else 'Failed'}"
 
 
 class UserSession(models.Model):

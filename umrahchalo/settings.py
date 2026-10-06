@@ -58,6 +58,7 @@ LOCAL_APPS = [
     'apps.reviews',
     'apps.banners',
     'apps.inquiries',
+    'apps.airport_attendants',
 ]
 
 
@@ -447,4 +448,3 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024  # 50MB
 DATA_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024  # 50MB
 # Create logs directory if it doesn't exist
 os.makedirs(BASE_DIR / 'logs', exist_ok=True)
-

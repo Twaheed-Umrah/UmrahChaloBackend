@@ -3,6 +3,7 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 import uuid
+import secrets
 
 from django.utils import timezone
 from .models import (
@@ -14,6 +15,7 @@ import re
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(required=False, allow_blank=True, allow_null=True)
     user_type_display = serializers.CharField(source='get_user_type_display', read_only=True)
     location_info = serializers.SerializerMethodField()
 
@@ -31,6 +33,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
         return obj.get_location_info()
 
     def validate_email(self, value):
+        if not value:
+            return None
         user = self.context.get('request').user if self.context.get('request') else None
         if user and User.objects.filter(email=value).exclude(id=user.id).exists():
             raise serializers.ValidationError("A user with this email already exists.")
@@ -86,8 +90,10 @@ class LocationUpdateSerializer(serializers.Serializer):
         return user
     
 class UserRegistrationSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, validators=[validate_password])
-    confirm_password = serializers.CharField(write_only=True)
+    email = serializers.EmailField(required=False, allow_blank=True, allow_null=True)
+    phone = serializers.CharField(required=True, allow_blank=False)
+    password = serializers.CharField(write_only=True, required=False, validators=[validate_password])
+    confirm_password = serializers.CharField(write_only=True, required=False, allow_blank=True)
     latitude = serializers.DecimalField(max_digits=10, decimal_places=8, required=False, allow_null=True)
     longitude = serializers.DecimalField(max_digits=11, decimal_places=8, required=False, allow_null=True)
     location_address = serializers.CharField(max_length=500, required=False, allow_blank=True)
@@ -105,15 +111,16 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         }
 
     def validate_email(self, value):
-        if User.objects.filter(email=value).exists():
+        if value and User.objects.filter(email=value).exists():
             raise serializers.ValidationError("A user with this email already exists.")
-        return value
+        return value or None
 
     def validate_phone(self, value):
-        if value:
-            phone_regex = re.compile(r'^\+?1?\d{9,15}$')
-            if not phone_regex.match(value):
-                raise serializers.ValidationError("Invalid phone number format.")
+        phone_regex = re.compile(r'^\+?1?\d{9,15}$')
+        if not phone_regex.match(value):
+            raise serializers.ValidationError("Invalid phone number format.")
+        if User.objects.filter(phone=value).exists():
+            raise serializers.ValidationError("A user with this phone number already exists.")
         return value
 
     def validate_latitude(self, value):
@@ -129,7 +136,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
-        if attrs['password'] != attrs['confirm_password']:
+        if attrs.get('confirm_password') and attrs.get('password') != attrs['confirm_password']:
             raise serializers.ValidationError("Passwords do not match.")
         
         # Validate latitude and longitude together
@@ -142,7 +149,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        validated_data.pop('confirm_password')
+        validated_data.pop('confirm_password', None)
 
         full_name = validated_data.get('full_name', '')
         if not validated_data.get('user_type'):
@@ -154,13 +161,13 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         location_address = validated_data.pop('location_address', None)
 
         user = User(
-            email=validated_data['email'],
+            email=validated_data.get('email') or None,
             phone=validated_data.get('phone'),
             full_name=full_name,
             user_type=validated_data['user_type'],
             is_verified=True  # User is already verified via OTP session
         )
-        user.set_password(validated_data['password'])
+        user.set_password(validated_data.get('password') or secrets.token_urlsafe(48))
         
         # Set location if provided
         if latitude is not None and longitude is not None:
@@ -375,10 +382,10 @@ class RefreshTokenSerializer(serializers.Serializer):
 # Service Provider Serializers
 class ServiceProviderRegistrationSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(write_only=True)
-    email = serializers.EmailField(write_only=True)
+    email = serializers.EmailField(write_only=True, required=False, allow_blank=True, allow_null=True)
     phone = serializers.CharField(write_only=True, required=True)
     password = serializers.CharField(write_only=True, validators=[validate_password])
-    confirm_password = serializers.CharField(write_only=True)
+    confirm_password = serializers.CharField(write_only=True, required=False, allow_blank=True)
     verification_token = serializers.CharField(write_only=True, required=False)
 
     class Meta:
@@ -408,9 +415,9 @@ class ServiceProviderRegistrationSerializer(serializers.ModelSerializer):
         }
 
     def validate_email(self, value):
-        if User.objects.filter(email=value).exists():
+        if value and User.objects.filter(email=value).exists():
             raise serializers.ValidationError("A user with this email already exists.")
-        return value
+        return value or None
 
     def validate_phone(self, value):
         if value:
@@ -422,31 +429,32 @@ class ServiceProviderRegistrationSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
-        if attrs['password'] != attrs['confirm_password']:
+        if attrs.get('confirm_password') and attrs.get('password') != attrs['confirm_password']:
             raise serializers.ValidationError("Passwords do not match.")
         return attrs
 
     def create(self, validated_data):
         full_name = validated_data.pop('full_name')
-        email = validated_data.pop('email')
+        email = validated_data.pop('email', None)
         phone = validated_data.pop('phone', None)
         password = validated_data.pop('password')
         validated_data.pop('confirm_password', None)
         
-        # Generate a unique username from email
-        username = email.split('@')[0]
+        username_source = email.split('@')[0] if email else re.sub(r'\W+', '', phone or '')
+        username = username_source[:150] or f"provider_{uuid.uuid4().hex[:8]}"
         if User.objects.filter(username=username).exists():
-            username = f"{username}_{uuid.uuid4().hex[:6]}"
+            username = f"{username[:140]}_{uuid.uuid4().hex[:6]}"
 
-        user = User.objects.create_user(
+        user = User(
             username=username,
-            email=email,
+            email=email or None,
             phone=phone,
-            password=password,
             full_name=full_name,
             user_type='provider',
             is_verified=True  # User is already verified via OTP session
         )
+        user.set_password(password)
+        user.save()
         
         # Create profile with whatever remaining data (might be empty business info)
         return ServiceProviderProfile.objects.create(user=user, **validated_data)
@@ -608,7 +616,7 @@ class LoginAttemptSerializer(serializers.ModelSerializer):
     class Meta:
         model = LoginAttempt
         fields = [
-            'id', 'email', 'ip_address', 'user_agent', 'success', 'created_at'
+            'id', 'email', 'phone', 'ip_address', 'user_agent', 'success', 'created_at'
         ]
         read_only_fields = ['id', 'created_at']
 

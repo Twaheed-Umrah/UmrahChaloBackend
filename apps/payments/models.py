@@ -49,6 +49,7 @@ class Payment(models.Model):
         ('renewal', 'Renewal'),
         ('upgrade', 'Upgrade'),
         ('addon', 'Add-on'),
+        ('airport_attendant', 'Airport Attendant'),
     )
     
     id = models.AutoField(primary_key=True)

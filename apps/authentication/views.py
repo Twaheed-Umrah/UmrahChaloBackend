@@ -219,10 +219,8 @@ class UserRegistrationView(generics.CreateAPIView):
             email = request.data.get('email')
             request_id = request.data.get('request_id')
 
-            identifier = email if email else phone
-
-            if not identifier or not request_id:
-                return Response({"error": "Identifier (email or phone) and Request ID are required."}, status=status.HTTP_400_BAD_REQUEST)
+            if not phone or not request_id:
+                return Response({"error": "Phone number and Request ID are required."}, status=status.HTTP_400_BAD_REQUEST)
 
             # Validate verified session
             verified_key = f"verified_session_{request_id}"
@@ -234,7 +232,7 @@ class UserRegistrationView(generics.CreateAPIView):
             # Strict identifier and purpose binding
             # Check if either the email or the phone matches the verified identifier
             verified_id = verified_data.get('identifier')
-            if verified_id not in (email, phone) or verified_data['purpose'] != 'registration':
+            if verified_id != phone or verified_data['purpose'] != 'registration':
                 return Response({"error": "Invalid session or identifier mismatch."}, status=status.HTTP_400_BAD_REQUEST)
 
             serializer = self.get_serializer(data=request.data)
@@ -324,6 +322,7 @@ class UserLoginView(APIView):
         # Log login attempt
         LoginAttempt.objects.create(
             email=user.email,
+            phone=user.phone,
             ip_address=ip_address,
             user_agent=user_agent,
             success=True
@@ -1326,8 +1325,10 @@ class LoginAttemptListView(generics.ListAPIView):
     def get_queryset(self):
         if self.request.user.is_staff:
             return LoginAttempt.objects.all().order_by('-created_at')
-        else:
+        elif self.request.user.email:
             return LoginAttempt.objects.filter(email=self.request.user.email).order_by('-created_at')
+        else:
+            return LoginAttempt.objects.filter(phone=self.request.user.phone).order_by('-created_at')
 
 
 # Admin Views
@@ -1780,8 +1781,13 @@ def user_stats(request):
     API endpoint to get user statistics
     """
     user = request.user
+    login_attempts = LoginAttempt.objects.filter(success=True)
+    if user.email:
+        login_attempts = login_attempts.filter(email=user.email)
+    else:
+        login_attempts = login_attempts.filter(phone=user.phone)
     stats = {
-        'total_logins': LoginAttempt.objects.filter(email=user.email, success=True).count(),
+        'total_logins': login_attempts.count(),
         'last_login': user.last_login,
         'account_created': user.created_at,
         'is_verified': user.is_verified,

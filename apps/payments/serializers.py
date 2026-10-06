@@ -2,6 +2,7 @@ from rest_framework import serializers
 from django.utils import timezone
 from .models import PaymentMethod, Payment, PaymentRefund, PaymentTransaction, PaymentWebhook
 from apps.subscriptions.models import Subscription
+from apps.airport_attendants.models import AirportAttendantBooking
 
 class PaymentMethodSerializer(serializers.ModelSerializer):
     """Serializer for payment methods"""
@@ -19,10 +20,15 @@ class PaymentCreateSerializer(serializers.ModelSerializer):
         queryset=PaymentMethod.objects.all(),
         slug_field='type'  # or 'name' depending on how your frontend sends it
     )
+    airport_attendant_booking = serializers.PrimaryKeyRelatedField(
+        queryset=AirportAttendantBooking.objects.all(),
+        required=False,
+        write_only=True,
+    )
     class Meta:
         model = Payment
         fields = [
-            'id', 'subscription', 'payment_method', 'amount', 
+            'id', 'subscription', 'airport_attendant_booking', 'payment_method', 'amount', 
             'currency', 'purpose', 'description', 'metadata'
         ]
     
@@ -38,11 +44,24 @@ class PaymentCreateSerializer(serializers.ModelSerializer):
         if request and value.user != request.user:
             raise serializers.ValidationError("You can only pay for your own subscriptions")
         return value
-    
+
+    def validate_airport_attendant_booking(self, booking):
+        request = self.context.get('request')
+        if request and booking.provider_id != request.user.id:
+            raise serializers.ValidationError('You can only pay for your own airport attendant booking.')
+        if booking.status != AirportAttendantBooking.Status.AWAITING_PAYMENT or booking.payment_id:
+            raise serializers.ValidationError('This booking is no longer awaiting payment.')
+        return booking
+
     def create(self, validated_data):
         """Create payment with calculated fees"""
         request = self.context.get('request')
         payment_method = validated_data['payment_method']
+        booking = validated_data.pop('airport_attendant_booking', None)
+        if (validated_data.get('purpose') == 'airport_attendant') != bool(booking):
+            raise serializers.ValidationError(
+                'An airport attendant booking is required for this payment purpose.'
+            )
         
         # Calculate processing fee
         amount = validated_data['amount']
@@ -56,6 +75,9 @@ class PaymentCreateSerializer(serializers.ModelSerializer):
             user_agent=request.META.get('HTTP_USER_AGENT', ''),
             **validated_data
         )
+        if booking:
+            booking.payment = payment
+            booking.save(update_fields=['payment', 'updated_at'])
         
         return payment
 
