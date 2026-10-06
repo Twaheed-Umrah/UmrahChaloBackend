@@ -33,7 +33,7 @@ class Lead(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
 
     full_name = models.CharField(max_length=100)
-    email = models.EmailField()
+    email = models.EmailField(blank=True)
     phone = models.CharField(max_length=20)
     preferred_date = models.DateField(null=True, blank=True)
     number_of_people = models.PositiveIntegerField(default=1)

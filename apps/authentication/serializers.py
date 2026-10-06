@@ -200,6 +200,9 @@ class UserLoginSerializer(serializers.Serializer):
         except User.DoesNotExist:
             raise serializers.ValidationError("Invalid credentials.")
 
+        if user.user_type == 'pilgrim':
+            raise serializers.ValidationError("Pilgrim accounts must log in using mobile OTP.")
+
         if not user.check_password(password):
             raise serializers.ValidationError("Invalid credentials.")
 

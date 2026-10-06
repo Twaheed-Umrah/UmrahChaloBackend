@@ -61,8 +61,10 @@ class RequestOTPView(APIView):
             if not email and not phone:
                 return Response({"error": "Email or phone number is required."}, status=status.HTTP_400_BAD_REQUEST)
 
-            if purpose not in ('registration', 'login', 'password_reset'):
+            if purpose not in ('registration', 'login', 'password_reset', 'pilgrim_auth'):
                 return Response({"error": "Invalid purpose."}, status=status.HTTP_400_BAD_REQUEST)
+            if purpose == 'pilgrim_auth' and (not phone or email):
+                return Response({"error": "Pilgrim authentication requires a mobile number."}, status=status.HTTP_400_BAD_REQUEST)
 
             identifier = email if email else phone
             send_method = "email" if email else "sms"
@@ -75,6 +77,13 @@ class RequestOTPView(APIView):
 
             if purpose == 'registration' and user_exists:
                 return Response({"error": "An account with this identifier already exists."}, status=status.HTTP_400_BAD_REQUEST)
+            elif purpose == 'pilgrim_auth' and user_exists:
+                user = User.objects.filter(phone=identifier).first()
+                if user.user_type != 'pilgrim':
+                    return Response(
+                        {"error": "This number is registered for an agent account. Please select Agent login."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
             elif purpose in ('password_reset', 'login') and not user_exists:
                 if purpose == 'login':
                     return Response({"error": "No account found with this identifier."}, status=status.HTTP_404_NOT_FOUND)
@@ -167,9 +176,14 @@ class VerifyOTPView(APIView):
             cache.delete(session_key)
 
             # Login purpose: issue JWT immediately
-            if purpose == 'login':
+            if purpose in ('login', 'pilgrim_auth'):
                 try:
                     user = User.objects.get(email=identifier) if "@" in identifier else User.objects.get(phone=identifier)
+                    if purpose == 'pilgrim_auth' and user.user_type != 'pilgrim':
+                        return Response(
+                            {"error": "This number is registered for an agent account. Please select Agent login."},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
                     refresh = RefreshToken.for_user(user)
 
                     UserActivity.objects.create(
@@ -186,6 +200,19 @@ class VerifyOTPView(APIView):
                         "user": UserProfileSerializer(user).data
                     }, status=status.HTTP_200_OK)
                 except User.DoesNotExist:
+                    if purpose == 'pilgrim_auth':
+                        verified_data = {
+                            "identifier": identifier,
+                            "purpose": purpose,
+                            "verified_at": time.time()
+                        }
+                        cache.set(f"verified_session_{request_id}", verified_data, timeout=600)
+                        return Response({
+                            "message": "OTP verified. Complete your pilgrim profile.",
+                            "request_id": request_id,
+                            "verified": True,
+                            "is_new_user": True
+                        }, status=status.HTTP_200_OK)
                     return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
 
             # For registration / password_reset: store verified session
@@ -232,10 +259,17 @@ class UserRegistrationView(generics.CreateAPIView):
             # Strict identifier and purpose binding
             # Check if either the email or the phone matches the verified identifier
             verified_id = verified_data.get('identifier')
-            if verified_id != phone or verified_data['purpose'] != 'registration':
+            verified_purpose = verified_data.get('purpose')
+            if verified_id != phone or verified_purpose not in ('registration', 'pilgrim_auth'):
                 return Response({"error": "Invalid session or identifier mismatch."}, status=status.HTTP_400_BAD_REQUEST)
 
-            serializer = self.get_serializer(data=request.data)
+            registration_data = request.data.copy()
+            if verified_purpose == 'pilgrim_auth':
+                if registration_data.get('user_type') not in (None, 'pilgrim'):
+                    return Response({"error": "This registration flow is only for pilgrims."}, status=status.HTTP_400_BAD_REQUEST)
+                registration_data['user_type'] = 'pilgrim'
+
+            serializer = self.get_serializer(data=registration_data)
             serializer.is_valid(raise_exception=True)
 
             # Clear verified session after use
