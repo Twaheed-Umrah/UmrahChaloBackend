@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.utils import timezone
 from django.db.models import Q
+from django_filters.rest_framework import DjangoFilterBackend
 from django.contrib.auth import get_user_model
 from .permissions import PublicReadAdminWrite
 from .models import Banner, PopularDestination
@@ -19,7 +20,8 @@ class BannerViewSet(viewsets.ModelViewSet):
     queryset = Banner.objects.filter(is_active=True)
     serializer_class = BannerSerializer
     permission_classes = [PublicReadAdminWrite]
-    filter_backends = [filters.OrderingFilter]
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ['banner_type', 'is_active']
     ordering_fields = ['priority_weight', 'display_order', 'created_at']
     
     def get_queryset(self):
