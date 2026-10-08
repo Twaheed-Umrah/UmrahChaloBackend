@@ -39,7 +39,7 @@ from apps.notifications.services import NotificationService
 
 import uuid
 import time
-from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import ConnectionError as RedisConnectionError, RedisError
 # Base Authentication Views
 
 class RequestOTPView(APIView):
@@ -70,12 +70,19 @@ class RequestOTPView(APIView):
             send_method = "email" if email else "sms"
 
             # Existence checks
-            user_exists = (
-                User.objects.filter(email=identifier).exists() if email
-                else User.objects.filter(phone=identifier).exists()
+            existing_user = (
+                User.objects.filter(email=identifier).first() if email
+                else User.objects.filter(phone=identifier).first()
+            )
+            user_exists = existing_user is not None
+            is_incomplete_provider = (
+                not email
+                and existing_user is not None
+                and existing_user.user_type == 'provider'
+                and not ServiceProviderProfile.objects.filter(user=existing_user).exists()
             )
 
-            if purpose == 'registration' and user_exists:
+            if purpose == 'registration' and user_exists and not is_incomplete_provider:
                 return Response({"error": "An account with this identifier already exists."}, status=status.HTTP_400_BAD_REQUEST)
             elif purpose == 'pilgrim_auth' and user_exists:
                 user = User.objects.filter(phone=identifier).first()
@@ -860,37 +867,44 @@ class ServiceProviderRegistrationView(generics.CreateAPIView):
     permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
-        try:
-            phone = request.data.get('phone')
-            request_id = request.data.get('request_id')
-            
-            if not phone or not request_id:
-                return Response({"error": "Phone number and Request ID are required"}, status=status.HTTP_400_BAD_REQUEST)
+        phone = request.data.get('phone')
+        request_id = request.data.get('request_id')
+        if not phone or not request_id:
+            return Response({"error": "Phone number and Request ID are required"}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Verify flag
-            verified_key = f"verified_session_{request_id}"
+        verified_key = f"verified_session_{request_id}"
+        try:
             verified_data = cache.get(verified_key)
-            
-            if not verified_data:
-                return Response({"error": "Session expired or not verified."}, status=status.HTTP_400_BAD_REQUEST)
-                
-            # Strict identifier and purpose binding
-            if verified_data['identifier'] != phone or verified_data['purpose'] != 'registration':
-                return Response({"error": "Invalid session or identifier mismatch."}, status=status.HTTP_400_BAD_REQUEST)
-                 
-            serializer = self.get_serializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
-            
-            # Clear flag
-            cache.delete(verified_key)
-        except serializers.ValidationError as e:
-            # Return specific validation errors (e.g., business name required or password strength)
-            return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
-        except (RedisConnectionError, Exception) as e:
-            logger.error(f"Provider Registration View Error: {str(e)}")
+        except RedisError:
+            logger.exception("Provider registration could not read the verified OTP session.")
             return Response({"error": "Service temporarily unavailable. Please ensure Redis is running."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-        provider = serializer.save()
+        if not verified_data:
+            return Response({"error": "Session expired or not verified."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if verified_data.get('identifier') != phone or verified_data.get('purpose') != 'registration':
+            return Response({"error": "Invalid session or identifier mismatch."}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = self.get_serializer(data=request.data)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except serializers.ValidationError as e:
+            return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            provider = serializer.save()
+        except Exception:
+            logger.exception("Provider registration failed while creating the user profile.")
+            return Response(
+                {"error": "Provider registration could not be completed. Please retry or contact support."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        try:
+            cache.delete(verified_key)
+        except RedisError:
+            logger.exception("Provider registered, but its verified OTP session could not be cleared.")
+
         user = provider.user  # The related user object
 
         # Generate JWT tokens for auto-login
@@ -1296,8 +1310,11 @@ class EmailVerificationView(APIView):
         
         # The validation is handled in the serializer
         user = serializer.validated_data['user']
+        otp_verification = serializer.validated_data['otp_verification']
         user.is_verified = True
         user.save()
+        otp_verification.is_used = True
+        otp_verification.save(update_fields=['is_used'])
         
         # Log activity
         UserActivity.objects.create(
@@ -1324,6 +1341,9 @@ class PhoneVerificationView(APIView):
         
         # The validation is handled in the serializer
         user = serializer.validated_data['user']
+        otp_verification = serializer.validated_data['otp_verification']
+        otp_verification.is_used = True
+        otp_verification.save(update_fields=['is_used'])
         # Add phone verification logic here
         
         # Log activity

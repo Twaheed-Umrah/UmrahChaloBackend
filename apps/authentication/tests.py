@@ -3,9 +3,18 @@ from django.test import TestCase
 from rest_framework.test import APITestCase
 from unittest.mock import patch
 
-from .models import LoginAttempt
+from django.utils import timezone
+from datetime import timedelta
+
+from .models import LoginAttempt, OTPVerification
 from .models import ServiceProviderProfile
-from .serializers import ServiceProviderRegistrationSerializer, UserRegistrationSerializer
+from .serializers import (
+    BulkUserActionSerializer,
+    PasswordResetVerifyOTPSerializer,
+    PhoneVerificationSerializer,
+    ServiceProviderRegistrationSerializer,
+    UserRegistrationSerializer,
+)
 
 User = get_user_model()
 
@@ -78,6 +87,182 @@ class OptionalEmailRegistrationTests(TestCase):
         profile = serializer.save()
         self.assertIsNone(profile.user.email)
         self.assertEqual(profile.user.phone, '+919876543212')
+
+    def test_provider_registration_recovers_orphan_user_without_changing_password(self):
+        user = User.objects.create_user(
+            username='orphan-provider',
+            email=None,
+            password='Existing-password-123',
+            phone='+919876543299',
+            full_name='Orphan Provider',
+            user_type='provider',
+            is_verified=True,
+        )
+
+        serializer = ServiceProviderRegistrationSerializer(data={
+            'full_name': 'Orphan Provider',
+            'phone': user.phone,
+            'password': 'Submitted-password-123',
+        })
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        profile = serializer.save()
+
+        self.assertEqual(profile.user_id, user.id)
+        user.refresh_from_db()
+        self.assertTrue(user.check_password('Existing-password-123'))
+        self.assertFalse(ServiceProviderProfile.objects.filter(user=user).exclude(pk=profile.pk).exists())
+
+
+class ProviderRegistrationEndpointTests(APITestCase):
+    @patch('apps.authentication.views.cache')
+    @patch('apps.authentication.views.NotificationService.send_welcome_notification')
+    def test_verified_registration_creates_provider_profile(self, send_welcome, cache_mock):
+        cache_mock.get.return_value = {
+            'identifier': '+919876543298',
+            'purpose': 'registration',
+        }
+
+        response = self.client.post('/api/v1/authenticate/providers/register/', {
+            'request_id': 'verified-provider-request',
+            'full_name': 'New Provider',
+            'phone': '+919876543298',
+            'password': 'Safe-password-123',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertTrue(ServiceProviderProfile.objects.filter(
+            user__phone='+919876543298',
+            user__user_type='provider',
+        ).exists())
+        cache_mock.delete.assert_called_once_with('verified_session_verified-provider-request')
+
+    @patch('apps.authentication.views.cache')
+    @patch('apps.authentication.views.NotificationService.send_welcome_notification')
+    def test_verified_registration_repairs_orphan_provider_user(self, send_welcome, cache_mock):
+        user = User.objects.create_user(
+            username='orphan-provider-endpoint',
+            email=None,
+            password='Existing-password-123',
+            phone='+919876543297',
+            user_type='provider',
+            is_verified=True,
+        )
+        cache_mock.get.return_value = {
+            'identifier': user.phone,
+            'purpose': 'registration',
+        }
+
+        response = self.client.post('/api/v1/authenticate/providers/register/', {
+            'request_id': 'verified-orphan-provider-request',
+            'full_name': 'Orphan Provider',
+            'phone': user.phone,
+            'password': 'Submitted-password-123',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertTrue(ServiceProviderProfile.objects.filter(user=user).exists())
+        user.refresh_from_db()
+        self.assertTrue(user.check_password('Existing-password-123'))
+
+
+class SharedSerializerRegressionTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='serializer-regression-user',
+            email=None,
+            password='Safe-password-123',
+            phone='+919876543296',
+        )
+
+    def create_otp(self, purpose, otp='123456'):
+        return OTPVerification.objects.create(
+            user=self.user,
+            otp=otp,
+            purpose=purpose,
+            expires_at=timezone.now() + timedelta(minutes=10),
+        )
+
+    def test_phone_verification_works_for_user_without_email(self):
+        self.create_otp('phone_verification')
+        serializer = PhoneVerificationSerializer(data={
+            'phone': self.user.phone,
+            'otp': '123456',
+        })
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data['user'], self.user)
+        self.assertFalse(serializer.validated_data['otp_verification'].is_used)
+
+    def test_password_reset_verification_accepts_phone(self):
+        self.create_otp('password_reset')
+        serializer = PasswordResetVerifyOTPSerializer(data={
+            'phone': self.user.phone,
+            'otp': '123456',
+        })
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data['user'], self.user)
+
+    def test_bulk_action_serializer_accepts_integer_user_ids(self):
+        serializer = BulkUserActionSerializer(data={
+            'user_ids': [self.user.pk],
+            'action': 'activate',
+        })
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data['user_ids'], [self.user.pk])
+
+
+class VerificationEndpointRegressionTests(APITestCase):
+    def test_phone_verification_succeeds_without_user_email_and_consumes_otp(self):
+        user = User.objects.create_user(
+            username='phone-verification-user',
+            email=None,
+            password='Safe-password-123',
+            phone='+919876543295',
+            is_verified=False,
+        )
+        otp = OTPVerification.objects.create(
+            user=user,
+            otp='123456',
+            purpose='phone_verification',
+            expires_at=timezone.now() + timedelta(minutes=10),
+        )
+
+        response = self.client.post('/api/v1/authenticate/verify/phone/', {
+            'phone': user.phone,
+            'otp': otp.otp,
+        }, format='json')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        otp.refresh_from_db()
+        self.assertTrue(otp.is_used)
+
+    def test_email_verification_consumes_otp_and_verifies_user(self):
+        user = User.objects.create_user(
+            username='email-verification-user',
+            email='email-verification@example.com',
+            password='Safe-password-123',
+            phone='+919876543294',
+            is_verified=False,
+        )
+        otp = OTPVerification.objects.create(
+            user=user,
+            otp='654321',
+            purpose='email_verification',
+            expires_at=timezone.now() + timedelta(minutes=10),
+        )
+
+        response = self.client.post('/api/v1/authenticate/verify/email/', {
+            'email': user.email,
+            'otp': otp.otp,
+        }, format='json')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        user.refresh_from_db()
+        otp.refresh_from_db()
+        self.assertTrue(user.is_verified)
+        self.assertTrue(otp.is_used)
 
 
 class PhoneOnlyLoginTests(APITestCase):

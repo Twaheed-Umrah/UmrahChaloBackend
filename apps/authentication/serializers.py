@@ -2,6 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
+from django.db import transaction
 import uuid
 import secrets
 
@@ -231,11 +232,32 @@ class OTPVerificationSerializer(serializers.Serializer):
     email = serializers.EmailField(required=False, allow_blank=True)
     phone = serializers.CharField(required=False, allow_blank=True)
     otp = serializers.CharField(max_length=6, required=True)
-    purpose = serializers.CharField()
+    purpose = serializers.ChoiceField(choices=OTPVerification._meta.get_field('purpose').choices)
 
     def validate(self, data):
-        if not data.get("email") and not data.get("phone"):
-            raise serializers.ValidationError("Email or Phone is required.")
+        email = data.get('email')
+        phone = data.get('phone')
+        if bool(email) == bool(phone):
+            raise serializers.ValidationError("Provide exactly one of email or phone.")
+
+        try:
+            user = User.objects.get(email=email) if email else User.objects.get(phone=phone)
+        except User.DoesNotExist:
+            raise serializers.ValidationError("User not found.")
+
+        otp_verification = OTPVerification.objects.filter(
+            user=user,
+            otp=data['otp'],
+            purpose=data['purpose'],
+            is_used=False,
+        ).order_by('-created_at').first()
+        if not otp_verification:
+            raise serializers.ValidationError("Invalid OTP.")
+        if otp_verification.is_expired():
+            raise serializers.ValidationError("OTP has expired.")
+
+        data['user'] = user
+        data['otp_verification'] = otp_verification
         return data
 
 # serializers.py - Add these new serializers
@@ -248,8 +270,8 @@ class PasswordResetSerializer(serializers.Serializer):
     phone = serializers.CharField(required=False)
     
     def validate(self, attrs):
-        if not attrs.get('email') and not attrs.get('phone'):
-            raise serializers.ValidationError("Either email or phone is required.")
+        if bool(attrs.get('email')) == bool(attrs.get('phone')):
+            raise serializers.ValidationError("Provide exactly one of email or phone.")
         return attrs
 
 
@@ -266,30 +288,21 @@ class PasswordResetVerifyOTPSerializer(serializers.Serializer):
         phone = attrs.get('phone')
         otp = attrs.get('otp')
 
-        if not email and not phone:
-            raise serializers.ValidationError("Either email or phone is required.")
+        if bool(email) == bool(phone):
+            raise serializers.ValidationError("Provide exactly one of email or phone.")
 
         try:
-            if email:
-                user = User.objects.get(email=email)
-            else:
-                user = User.objects.get(phone=phone)
+            user = User.objects.get(email=email) if email else User.objects.get(phone=phone)
         except User.DoesNotExist:
             raise serializers.ValidationError("User not found.")
-        otp = attrs.get('otp')
-        
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            raise serializers.ValidationError("User with this email does not exist.")
-        
+
         # Check if there's a valid OTP
         otp_obj = OTPVerification.objects.filter(
             user=user,
             otp=otp,
             purpose='password_reset',
             is_used=False
-        ).last()
+        ).order_by('-created_at').first()
         
         if not otp_obj:
             raise serializers.ValidationError("Invalid OTP.")
@@ -418,16 +431,30 @@ class ServiceProviderRegistrationSerializer(serializers.ModelSerializer):
         }
 
     def validate_email(self, value):
-        if value and User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("A user with this email already exists.")
+        if value:
+            matching_users = User.objects.filter(email=value)
+            orphan_provider = self._orphan_provider_user()
+            if orphan_provider:
+                matching_users = matching_users.exclude(pk=orphan_provider.pk)
+            if matching_users.exists():
+                raise serializers.ValidationError("A user with this email already exists.")
         return value or None
+
+    def _orphan_provider_user(self):
+        phone = self.initial_data.get('phone')
+        if not phone:
+            return None
+        user = User.objects.filter(phone=phone, user_type='provider').first()
+        if user and not ServiceProviderProfile.objects.filter(user=user).exists():
+            return user
+        return None
 
     def validate_phone(self, value):
         if value:
             phone_regex = re.compile(r'^\+?1?\d{9,15}$')
             if not phone_regex.match(value):
                 raise serializers.ValidationError("Invalid phone number format.")
-            if User.objects.filter(phone=value).exists():
+            if User.objects.filter(phone=value).exists() and not self._orphan_provider_user():
                 raise serializers.ValidationError("A user with this phone number already exists.")
         return value
 
@@ -442,25 +469,27 @@ class ServiceProviderRegistrationSerializer(serializers.ModelSerializer):
         phone = validated_data.pop('phone', None)
         password = validated_data.pop('password')
         validated_data.pop('confirm_password', None)
+        validated_data.pop('verification_token', None)
         
-        username_source = email.split('@')[0] if email else re.sub(r'\W+', '', phone or '')
-        username = username_source[:150] or f"provider_{uuid.uuid4().hex[:8]}"
-        if User.objects.filter(username=username).exists():
-            username = f"{username[:140]}_{uuid.uuid4().hex[:6]}"
+        with transaction.atomic():
+            user = self._orphan_provider_user()
+            if not user:
+                username_source = email.split('@')[0] if email else re.sub(r'\W+', '', phone or '')
+                username = username_source[:150] or f"provider_{uuid.uuid4().hex[:8]}"
+                if User.objects.filter(username=username).exists():
+                    username = f"{username[:140]}_{uuid.uuid4().hex[:6]}"
 
-        user = User(
-            username=username,
-            email=email or None,
-            phone=phone,
-            full_name=full_name,
-            user_type='provider',
-            is_verified=True  # User is already verified via OTP session
-        )
-        user.set_password(password)
-        user.save()
-        
-        # Create profile with whatever remaining data (might be empty business info)
-        return ServiceProviderProfile.objects.create(user=user, **validated_data)
+                user = User(
+                    username=username,
+                    email=email or None,
+                    phone=phone,
+                    full_name=full_name,
+                    user_type='provider',
+                    is_verified=True
+                )
+                user.set_password(password)
+                user.save()
+            return ServiceProviderProfile.objects.create(user=user, **validated_data)
 
 class ProviderMediaSerializer(serializers.ModelSerializer):
     """
@@ -674,7 +703,7 @@ class PhoneVerificationSerializer(serializers.Serializer):
             raise serializers.ValidationError("User with this phone number does not exist.")
         
         return OTPVerificationSerializer().validate({
-            'email': user.email,
+            'phone': user.phone,
             'otp': attrs['otp'],
             'purpose': 'phone_verification'
         })
@@ -702,7 +731,7 @@ class BulkUserActionSerializer(serializers.Serializer):
     Bulk user action serializer for admin operations
     """
     user_ids = serializers.ListField(
-        child=serializers.UUIDField(),
+        child=serializers.ModelField(model_field=User._meta.pk),
         allow_empty=False
     )
     action = serializers.ChoiceField(choices=[
