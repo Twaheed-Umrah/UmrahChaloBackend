@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from datetime import timedelta
 from decouple import config, Csv
 from celery.schedules import crontab
 import dj_database_url
@@ -193,6 +194,11 @@ REST_FRAMEWORK = {
         'anon': '100/minute',
         'user': '1000/minute'
     }
+}
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
 }
 
 # Spectacular settings for API documentation

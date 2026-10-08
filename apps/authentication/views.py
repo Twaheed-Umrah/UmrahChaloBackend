@@ -1135,7 +1135,10 @@ class ServiceProviderDetailView(generics.RetrieveUpdateDestroyAPIView):
         """
         Return the ServiceProviderProfile for the currently logged-in user
         """
-        return self.request.user.service_provider_profile  # Adjust based on your user model
+        return get_object_or_404(
+            ServiceProviderProfile.objects.select_related('user'),
+            user=self.request.user,
+        )
 
     def perform_update(self, serializer):
         provider = serializer.save()

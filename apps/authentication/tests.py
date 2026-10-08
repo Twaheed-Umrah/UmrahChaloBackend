@@ -4,6 +4,7 @@ from rest_framework.test import APITestCase
 from unittest.mock import patch
 
 from .models import LoginAttempt
+from .models import ServiceProviderProfile
 from .serializers import ServiceProviderRegistrationSerializer, UserRegistrationSerializer
 
 User = get_user_model()
@@ -217,3 +218,35 @@ class PilgrimMobileAuthTests(APITestCase):
         self.assertEqual(response.data['user']['user_type'], 'pilgrim')
         self.assertEqual(response.data['user']['phone'], '+919876543218')
         self.assertTrue(User.objects.filter(phone='+919876543218', user_type='pilgrim').exists())
+
+
+class ProviderProfileEndpointTests(APITestCase):
+    def test_pending_provider_can_retrieve_own_profile(self):
+        user = User.objects.create_user(
+            username='pending-provider-profile',
+            email=None,
+            password='Safe-password-123',
+            phone='+919876543224',
+            user_type='provider',
+        )
+        ServiceProviderProfile.objects.create(user=user, verification_status='pending')
+        self.client.force_authenticate(user=user)
+
+        response = self.client.get('/api/v1/authenticate/providers/service-provider/me/')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['verification_status'], 'pending')
+
+    def test_missing_provider_profile_returns_404_instead_of_server_error(self):
+        user = User.objects.create_user(
+            username='provider-without-profile',
+            email=None,
+            password='Safe-password-123',
+            phone='+919876543222',
+            user_type='provider',
+        )
+        self.client.force_authenticate(user=user)
+
+        response = self.client.get('/api/v1/authenticate/providers/service-provider/me/')
+
+        self.assertEqual(response.status_code, 404)
