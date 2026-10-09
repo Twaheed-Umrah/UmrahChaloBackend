@@ -30,7 +30,7 @@ from .serializers import (
 )
 import logging
 logger = logging.getLogger(__name__)
-from apps.core.utils import get_client_ip, get_user_agent
+from apps.core.utils import generate_otp, get_client_ip, get_user_agent, send_otp
 from .utils import OTPService, SMSService, send_email_otp, send_sms_otp
 from django.core.cache import cache
 from apps.core.pagination import CustomPagination

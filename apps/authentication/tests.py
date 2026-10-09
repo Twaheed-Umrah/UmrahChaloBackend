@@ -265,6 +265,44 @@ class VerificationEndpointRegressionTests(APITestCase):
         self.assertTrue(otp.is_used)
 
 
+class PilgrimProfileEmailUpdateTests(APITestCase):
+    @patch('apps.authentication.views.send_otp', return_value=True)
+    @patch('apps.authentication.views.generate_otp', return_value='123456')
+    def test_email_update_sends_verification_otp(self, generate_otp, send_otp):
+        user = User.objects.create_user(
+            username='pilgrim-email-update',
+            email='old-email@example.com',
+            password='Safe-password-123',
+            phone='+919876543293',
+            user_type='pilgrim',
+        )
+        self.client.force_authenticate(user=user)
+
+        response = self.client.patch('/api/v1/authenticate/profile/user/', {
+            'email': 'new-email@example.com',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(
+            response.data['message'],
+            'Email update initiated. Please verify your new email address.',
+        )
+        self.assertEqual(response.data['new_email'], 'new-email@example.com')
+        generate_otp.assert_called_once_with()
+        send_otp.assert_called_once_with(
+            'new-email@example.com',
+            '123456',
+            'email_verification',
+        )
+        self.assertTrue(OTPVerification.objects.filter(
+            user=user,
+            otp='123456',
+            purpose='email_verification',
+        ).exists())
+        user.refresh_from_db()
+        self.assertEqual(user.email, 'old-email@example.com')
+
+
 class PhoneOnlyLoginTests(APITestCase):
     def test_phone_password_login_succeeds_and_tracks_phone(self):
         user = User(
