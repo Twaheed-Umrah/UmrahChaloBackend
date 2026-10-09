@@ -736,24 +736,31 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         
-        # If email is being updated, require verification
-        if 'email' in serializer.validated_data:
-            new_email = serializer.validated_data['email']
-            if new_email != instance.email:
-                # Generate and send OTP for email verification
-                otp = generate_otp()
-                OTPVerification.objects.create(
-                    user=instance,
-                    otp=otp,
-                    purpose='email_verification',
-                    expires_at=timezone.now() + timedelta(minutes=10)
+        new_phone = serializer.validated_data.get('phone')
+        phone_change_pending = 'phone' in serializer.validated_data and new_phone != instance.phone
+        if phone_change_pending and not new_phone:
+            return Response(
+                {'phone': ['Provide a new phone number to verify instead of clearing the current number.']},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if phone_change_pending:
+            otp = generate_otp()
+            otp_verification = OTPVerification.objects.create(
+                user=instance,
+                otp=otp,
+                target_phone=new_phone,
+                purpose='phone_verification',
+                expires_at=timezone.now() + timedelta(minutes=5)
+            )
+            if not send_sms_otp(new_phone, otp, 'phone_verification'):
+                otp_verification.is_used = True
+                otp_verification.save(update_fields=['is_used'])
+                return Response(
+                    {'error': 'Failed to send verification code to the new phone number.'},
+                    status=status.HTTP_502_BAD_GATEWAY
                 )
-                send_otp(new_email, otp, 'email_verification')
-                
-                return Response({
-                    'message': 'Email update initiated. Please verify your new email address.',
-                    'new_email': new_email
-                }, status=status.HTTP_200_OK)
+
+            serializer.validated_data['phone'] = instance.phone
         
         self.perform_update(serializer)
         
@@ -766,10 +773,17 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
             metadata={'updated_fields': list(serializer.validated_data.keys())}
         )
         
-        return Response({
+        response_data = {
             'message': 'Profile updated successfully',
             'user': serializer.data
-        }, status=status.HTTP_200_OK)
+        }
+        if phone_change_pending:
+            response_data.update({
+                'message': 'Phone number update initiated. Verify the code sent to your new number.',
+                'phone_update_pending': True,
+                'new_phone': new_phone,
+            })
+        return Response(response_data, status=status.HTTP_200_OK)
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -1342,6 +1356,9 @@ class PhoneVerificationView(APIView):
         # The validation is handled in the serializer
         user = serializer.validated_data['user']
         otp_verification = serializer.validated_data['otp_verification']
+        if otp_verification.target_phone:
+            user.phone = otp_verification.target_phone
+            user.save(update_fields=['phone'])
         otp_verification.is_used = True
         otp_verification.save(update_fields=['is_used'])
         # Add phone verification logic here

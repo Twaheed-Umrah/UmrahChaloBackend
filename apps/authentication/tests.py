@@ -266,9 +266,7 @@ class VerificationEndpointRegressionTests(APITestCase):
 
 
 class PilgrimProfileEmailUpdateTests(APITestCase):
-    @patch('apps.authentication.views.send_otp', return_value=True)
-    @patch('apps.authentication.views.generate_otp', return_value='123456')
-    def test_email_update_sends_verification_otp(self, generate_otp, send_otp):
+    def setUp(self):
         user = User.objects.create_user(
             username='pilgrim-email-update',
             email='old-email@example.com',
@@ -277,30 +275,66 @@ class PilgrimProfileEmailUpdateTests(APITestCase):
             user_type='pilgrim',
         )
         self.client.force_authenticate(user=user)
+        self.user = user
 
+    def test_email_update_saves_immediately_without_otp(self):
         response = self.client.patch('/api/v1/authenticate/profile/user/', {
             'email': 'new-email@example.com',
         }, format='json')
 
         self.assertEqual(response.status_code, 200, response.data)
-        self.assertEqual(
-            response.data['message'],
-            'Email update initiated. Please verify your new email address.',
-        )
-        self.assertEqual(response.data['new_email'], 'new-email@example.com')
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, 'new-email@example.com')
+        self.assertFalse(OTPVerification.objects.filter(user=self.user).exists())
+
+    @patch('apps.authentication.views.send_sms_otp', return_value=True)
+    @patch('apps.authentication.views.generate_otp', return_value='123456')
+    def test_phone_update_waits_for_sms_otp_verification(self, generate_otp, send_sms_otp):
+        response = self.client.patch('/api/v1/authenticate/profile/user/', {
+            'full_name': 'Updated Pilgrim',
+            'phone': '+919876543292',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertTrue(response.data['phone_update_pending'])
+        self.assertEqual(response.data['new_phone'], '+919876543292')
         generate_otp.assert_called_once_with()
-        send_otp.assert_called_once_with(
-            'new-email@example.com',
+        send_sms_otp.assert_called_once_with(
+            '+919876543292',
             '123456',
-            'email_verification',
+            'phone_verification',
         )
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.phone, '+919876543293')
+        self.assertEqual(self.user.full_name, 'Updated Pilgrim')
         self.assertTrue(OTPVerification.objects.filter(
-            user=user,
+            user=self.user,
             otp='123456',
-            purpose='email_verification',
+            target_phone='+919876543292',
+            purpose='phone_verification',
+            is_used=False,
         ).exists())
-        user.refresh_from_db()
-        self.assertEqual(user.email, 'old-email@example.com')
+
+    @patch('apps.authentication.views.send_sms_otp', return_value=True)
+    @patch('apps.authentication.views.generate_otp', return_value='123456')
+    def test_phone_changes_after_pending_number_is_verified(self, generate_otp, send_sms_otp):
+        self.client.patch('/api/v1/authenticate/profile/user/', {
+            'phone': '+919876543292',
+        }, format='json')
+
+        response = self.client.post('/api/v1/authenticate/verify/phone/', {
+            'phone': '+919876543292',
+            'otp': '123456',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.phone, '+919876543292')
+        self.assertTrue(OTPVerification.objects.get(
+            user=self.user,
+            otp='123456',
+            target_phone='+919876543292',
+        ).is_used)
 
 
 class PhoneOnlyLoginTests(APITestCase):

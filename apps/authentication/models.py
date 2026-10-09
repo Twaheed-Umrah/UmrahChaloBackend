@@ -125,6 +125,7 @@ class OTPVerification(models.Model):
     """
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='otp_verifications')
     otp = models.CharField(max_length=6)
+    target_phone = models.CharField(max_length=15, blank=True, null=True)
     purpose = models.CharField(max_length=50, choices=[
         ('email_verification', 'Email Verification'),
         ('phone_verification', 'Phone Verification'),

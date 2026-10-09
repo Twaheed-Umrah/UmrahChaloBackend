@@ -48,6 +48,12 @@ class UserProfileSerializer(serializers.ModelSerializer):
             phone_regex = re.compile(r'^\+?1?\d{9,15}$')
             if not phone_regex.match(value):
                 raise serializers.ValidationError("Invalid phone number format.")
+            user = self.context.get('request').user if self.context.get('request') else None
+            users_with_phone = User.objects.filter(phone=value)
+            if user:
+                users_with_phone = users_with_phone.exclude(id=user.id)
+            if users_with_phone.exists():
+                raise serializers.ValidationError("A user with this phone number already exists.")
         return value
 
     def validate_latitude(self, value):
@@ -697,6 +703,25 @@ class PhoneVerificationSerializer(serializers.Serializer):
         return value
     
     def validate(self, attrs):
+        pending_phone_otp = OTPVerification.objects.filter(
+            target_phone=attrs['phone'],
+            otp=attrs['otp'],
+            purpose='phone_verification',
+            is_used=False,
+        ).select_related('user').order_by('-created_at').first()
+        if pending_phone_otp:
+            if pending_phone_otp.is_expired():
+                raise serializers.ValidationError("OTP has expired.")
+            if User.objects.filter(phone=attrs['phone']).exclude(
+                id=pending_phone_otp.user_id
+            ).exists():
+                raise serializers.ValidationError(
+                    "This phone number is already associated with another user."
+                )
+            attrs['user'] = pending_phone_otp.user
+            attrs['otp_verification'] = pending_phone_otp
+            return attrs
+
         try:
             user = User.objects.get(phone=attrs['phone'])
         except User.DoesNotExist:
