@@ -102,6 +102,23 @@ class User(AbstractUser):
         return self.latitude is not None and self.longitude is not None
     
     @property
+    def creditwallet(self):
+        """Compatibility property for reverse relation credit_wallet"""
+        return getattr(self, 'credit_wallet', None)
+
+    @property
+    def credit_balance(self):
+        """Return credit balance safely"""
+        wallet = getattr(self, 'credit_wallet', None)
+        if wallet:
+            return wallet.balance
+        try:
+            from apps.subscriptions.models import CreditWallet
+            return CreditWallet.objects.filter(user=self).values_list('balance', flat=True).first() or 0
+        except Exception:
+            return 0
+
+    @property
     def location_coordinates(self):
         """Return coordinates as tuple (latitude, longitude)"""
         if self.has_location:
@@ -330,6 +347,13 @@ class ServiceProviderProfile(models.Model):
             start_date__lte=timezone.now(),
             end_date__gte=timezone.now()
         ).first()
+
+    @property
+    def credit_balance(self):
+        """Safe credit balance lookup for provider"""
+        if not self.user:
+            return 0
+        return getattr(self.user, 'credit_balance', 0)
     
     def can_upload_any_service_type(self):
         """Check if provider can upload any service type (Ultra Premium feature)"""

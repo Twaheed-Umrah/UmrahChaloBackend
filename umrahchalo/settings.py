@@ -60,6 +60,7 @@ LOCAL_APPS = [
     'apps.banners',
     'apps.inquiries',
     'apps.airport_attendants',
+    'apps.telephony',
 ]
 
 
@@ -454,3 +455,18 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024  # 50MB
 DATA_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024  # 50MB
 # Create logs directory if it doesn't exist
 os.makedirs(BASE_DIR / 'logs', exist_ok=True)
+
+# Exotel Telephony Configuration
+EXOTEL_DEFAULT_SUPPORT_NUMBER = config('EXOTEL_DEFAULT_SUPPORT_NUMBER', default='+919289042962')
+EXOTEL_OUTGOING_PHONE_NUMBER = config('EXOTEL_OUTGOING_PHONE_NUMBER', default='')
+EXOTEL_RECORD_CALLS = config('EXOTEL_RECORD_CALLS', default=True, cast=bool)
+EXOTEL_RECORDING_CHANNELS = config('EXOTEL_RECORDING_CHANNELS', default='dual')
+EXOTEL_MAX_RINGING_DURATION = config('EXOTEL_MAX_RINGING_DURATION', default=45, cast=int)
+EXOTEL_MAX_CONVERSATION_DURATION = config('EXOTEL_MAX_CONVERSATION_DURATION', default=3600, cast=int)
+EXOTEL_MUSIC_ON_HOLD_TYPE = config('EXOTEL_MUSIC_ON_HOLD_TYPE', default='operator_tone')
+EXOTEL_CALL_GREETING = config('EXOTEL_CALL_GREETING', default='Connecting your call, please wait.')
+EXOTEL_IVR_ROUTING = {
+    '1': config('EXOTEL_IVR_1', default='+919289042962'),  # Option 1: Umrah & Hajj Packages
+    '2': config('EXOTEL_IVR_2', default='+919289042962'),  # Option 2: Visa & Flights
+    '3': config('EXOTEL_IVR_3', default='+919289042962'),  # Option 3: Customer Support
+}

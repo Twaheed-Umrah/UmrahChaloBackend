@@ -258,10 +258,10 @@ class ServiceViewSet(viewsets.ModelViewSet):
         user = self.request.user
         role = self.get_user_role()
         
-        # 1. Base Queryset optimization
+        # 1. Base Queryset optimization (Enterprise Eager Loaded)
         queryset = self.queryset.select_related(
-            'provider', 'provider__user', 'category', 'featured_image', 'verified_by'
-        ).prefetch_related('images', 'availabilities', 'faqs')
+            'provider', 'provider__user', 'provider__user__credit_wallet', 'category', 'featured_image', 'verified_by'
+        ).prefetch_related('images', 'availabilities', 'faqs', 'provider__user__subscriptions__plan')
 
         # 2. Apply Filtering based on role
         if role in ['admin', 'super_admin']:
@@ -322,38 +322,38 @@ class ServiceViewSet(viewsets.ModelViewSet):
                 return (True, 3, 0, datetime.max.replace(tzinfo=None), 0, 0)
             
             # Sub & Credit Info
-            balance = 0
+            balance = getattr(provider, 'credit_balance', 0)
             sub_start_date = datetime.max.replace(tzinfo=None)
-            has_priority_plan = False
-            
-            try:
-                balance = provider.user.creditwallet.balance
-            except:
-                pass
             
             sub = provider.get_active_subscription()
-            if sub and sub.plan.plan_type in ['ultra_premium', 'growth']:
-                has_priority_plan = True
-                sub_start_date = sub.start_date.replace(tzinfo=None) if sub.start_date else sub_start_date
+            plan_type = sub.plan.plan_type if (sub and sub.plan) else 'free'
+            has_priority_listing = getattr(sub.plan, 'priority_listing', False) if (sub and sub.plan) else False
+            if sub and sub.start_date:
+                sub_start_date = sub.start_date.replace(tzinfo=None)
 
-            # Tiering
-            tier = 3
-            if has_priority_plan:
-                tier = 1 if balance >= 10 else 2
+            # Multi-Tier Service Ranking (1 Growth, 2 Ultra, 3 Premium, 4 Basic, 5 Free):
+            if plan_type == 'growth' and balance > 0:
+                tier = 1
+            elif plan_type == 'ultra_premium':
+                tier = 2
+            elif plan_type == 'premium' or has_priority_listing:
+                tier = 3
+            elif plan_type == 'basic':
+                tier = 4
+            else:
+                tier = 5
             
-            # Rotation for Tier 2
-            rotation_score = 0
-            if tier == 2:
-                seed = f"{service.id}-{current_hour_str}"
-                rotation_score = int(hashlib.md5(seed.encode()).hexdigest(), 16)
+            # Hourly rotation for fair impressions among paid partners
+            seed = f"{service.id}-{current_hour_str}"
+            rotation_score = int(hashlib.md5(seed.encode()).hexdigest(), 16)
             
             return (
                 not provider.is_featured,
                 not service.is_featured,
                 tier, 
                 -balance if tier == 1 else 0,
-                sub_start_date if tier == 1 else datetime.max.replace(tzinfo=None),
-                -rotation_score if tier == 2 else 0,
+                -rotation_score if tier in [1, 2, 3] else 0,
+                sub_start_date,
                 -float(service.average_rating_val or 0)
             )
 

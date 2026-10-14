@@ -66,12 +66,14 @@ def get_eligible_providers(lead):
     from .serializers import LeadCreateSerializer
     
     # 1. Base Query: Verified and Active Providers with active subscriptions
+    now = timezone.now()
     providers = ServiceProviderProfile.objects.filter(
         verification_status='verified',
         is_active=True,
-        subscriptions__is_active=True,
-        subscriptions__expires_at__gt=timezone.now()
-    ).distinct()
+        user__subscriptions__status='active',
+        user__subscriptions__start_date__lte=now,
+        user__subscriptions__end_date__gte=now
+    ).select_related('user').distinct()
 
     # Determine target coordinates from the lead's associated package/service
     origin_lat = None

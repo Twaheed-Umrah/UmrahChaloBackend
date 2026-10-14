@@ -67,10 +67,14 @@ class IsAdminOrSuperAdmin(permissions.BasePermission):
     Custom permission to only allow admins or super admins.
     """
     def has_permission(self, request, view):
-        return (
+        return bool(
+            request.user and
             request.user.is_authenticated and
-            
-            request.user.user_type in [UserRole.ADMIN, UserRole.SUPER_ADMIN]
+            (
+                request.user.is_superuser or
+                request.user.is_staff or
+                getattr(request.user, 'user_type', None) in [UserRole.ADMIN, UserRole.SUPER_ADMIN, 'admin', 'super_admin']
+            )
         )
 
 class IsProviderOrAdmin(permissions.BasePermission):

@@ -165,13 +165,18 @@ class LeadSerializer(serializers.ModelSerializer):
         
         target_business_types = self.get_target_business_types(lead)
         
-        # 1. Base Query: Verified and Active Providers
+        # 1. Base Query: Verified and Active Providers with active subscriptions (Enterprise Scaled)
+        from django.utils import timezone
+        now = timezone.now()
         base_providers = ServiceProviderProfile.objects.filter(
             verification_status='verified',
-            is_active=True
-        ).exclude(
+            is_active=True,
+            user__subscriptions__status='active',
+            user__subscriptions__start_date__lte=now,
+            user__subscriptions__end_date__gte=now
+        ).select_related('user').prefetch_related('user__subscriptions__plan').exclude(
             id__in=LeadDistribution.objects.filter(lead=lead).values_list('provider_id', flat=True)
-        )
+        ).distinct()
 
         # Determine target coordinates from the lead's associated package/service
         origin_lat = None
@@ -193,9 +198,8 @@ class LeadSerializer(serializers.ModelSerializer):
             
             plan_type = subscription.plan.plan_type
             
-            # --- LEAD DISTRIBUTION LOGIC (Basic, Ultra, Growth) ---
-            # All these plans now receive nearby/category leads
-            if plan_type in ['basic', 'ultra_premium', 'growth']:
+            # --- LEAD DISTRIBUTION LOGIC (Growth, Ultra, Premium, Basic) ---
+            if plan_type in ['growth', 'ultra_premium', 'premium', 'basic']:
                 # Geographic check (500km radius)
                 if origin_lat and origin_lng and provider.user.latitude and provider.user.longitude:
                     distance = calculate_distance(
@@ -234,17 +238,28 @@ class LeadSerializer(serializers.ModelSerializer):
                     if has_similar:
                         filtered_providers.append(provider)
 
-        # 3. Credit-Based Ranking/Limit
-        # Providers with wallet < 10 drop below Top 5
-        # (This is more for rotation, but we can prioritize those with higher balance)
-        from apps.subscriptions.models import CreditWallet
-        def get_balance(p):
-            try:
-                return p.user.creditwallet.balance
-            except:
-                return 0
+        # 3. Credit & Subscription-Based Ranking (1 Growth, 2 Ultra, 3 Premium, 4 Basic):
+        def get_lead_priority(p):
+            sub = p.get_active_subscription()
+            plan_type = sub.plan.plan_type if (sub and sub.plan) else 'free'
+            balance = getattr(p, 'credit_balance', 0)
+            
+            weight = 0
+            if plan_type == 'growth' and balance > 0:
+                weight = 4
+            elif plan_type == 'ultra_premium':
+                weight = 3
+            elif plan_type == 'premium':
+                weight = 2
+            elif plan_type == 'basic':
+                weight = 1
+                
+            return (
+                weight,
+                balance
+            )
 
-        filtered_providers.sort(key=lambda p: (get_balance(p) >= 10, -get_balance(p)), reverse=True)
+        filtered_providers.sort(key=get_lead_priority, reverse=True)
         
         # Limit targeting
         max_providers = 10
@@ -436,13 +451,18 @@ class LeadCreateSerializer(serializers.ModelSerializer):
         
         target_business_types = self.get_target_business_types(lead)
 
-        # Base Query
+        # Base Query (Enterprise Scaled)
+        from django.utils import timezone
+        now = timezone.now()
         base_providers = ServiceProviderProfile.objects.filter(
             verification_status='verified',
-            is_active=True
-        ).exclude(
+            is_active=True,
+            user__subscriptions__status='active',
+            user__subscriptions__start_date__lte=now,
+            user__subscriptions__end_date__gte=now
+        ).select_related('user').prefetch_related('user__subscriptions__plan').exclude(
             id__in=LeadDistribution.objects.filter(lead=lead).values_list('provider_id', flat=True)
-        )
+        ).distinct()
 
         origin_lat = None
         origin_lng = None
@@ -461,9 +481,8 @@ class LeadCreateSerializer(serializers.ModelSerializer):
             
             plan_type = subscription.plan.plan_type
             
-            # --- LEAD DISTRIBUTION LOGIC (Basic, Ultra, Growth) ---
-            # All these plans now receive nearby/category leads
-            if plan_type in ['basic', 'ultra_premium', 'growth']:
+            # --- LEAD DISTRIBUTION LOGIC (Growth, Ultra, Premium, Basic) ---
+            if plan_type in ['growth', 'ultra_premium', 'premium', 'basic']:
                 if origin_lat and origin_lng and provider.user.latitude and provider.user.longitude:
                     distance = calculate_distance(
                         float(origin_lat), float(origin_lng),
@@ -499,14 +518,28 @@ class LeadCreateSerializer(serializers.ModelSerializer):
                     if has_similar:
                         filtered_providers.append(provider)
 
-        # Ranking
-        def get_balance(p):
-            try:
-                return p.user.creditwallet.balance
-            except:
-                return 0
+        # Credit & Subscription-Based Ranking (1 Growth, 2 Ultra, 3 Premium, 4 Basic):
+        def get_lead_priority(p):
+            sub = p.get_active_subscription()
+            plan_type = sub.plan.plan_type if (sub and sub.plan) else 'free'
+            balance = getattr(p, 'credit_balance', 0)
+            
+            weight = 0
+            if plan_type == 'growth' and balance > 0:
+                weight = 4
+            elif plan_type == 'ultra_premium':
+                weight = 3
+            elif plan_type == 'premium':
+                weight = 2
+            elif plan_type == 'basic':
+                weight = 1
+                
+            return (
+                weight,
+                balance
+            )
         
-        filtered_providers.sort(key=lambda p: (get_balance(p) >= 10, -get_balance(p)), reverse=True)
+        filtered_providers.sort(key=get_lead_priority, reverse=True)
         
         max_providers = 10
         target_providers = filtered_providers[:max_providers]
@@ -676,18 +709,34 @@ class LeadNoteSerializer(serializers.ModelSerializer):
 
 class LeadManualDistributionSerializer(serializers.Serializer):
     """
-    Serializer for manual lead distribution by superadmin
+    Serializer for manual lead distribution by superadmin/admin.
+    Supports targeting subscribed providers, specific plan tiers, and provider selection.
     """
     lead_id = serializers.IntegerField()
+    provider_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        help_text="Specific provider IDs to distribute to. Takes precedence over business_types."
+    )
     business_types = serializers.ListField(
         child=serializers.CharField(max_length=50),
         required=False,
         help_text="List of business types to target. If not provided, auto-determined based on lead content."
     )
-    provider_ids = serializers.ListField(
-        child=serializers.IntegerField(),
+    only_subscribed_providers = serializers.BooleanField(
+        default=True,
         required=False,
-        help_text="Specific provider IDs to distribute to. Takes precedence over business_types."
+        help_text="If True, only providers with an active paid subscription receive the lead."
+    )
+    plan_types = serializers.ListField(
+        child=serializers.CharField(max_length=50),
+        required=False,
+        help_text="Filter by specific subscription plan types (growth, ultra_premium, premium, basic)."
+    )
+    deduct_credits = serializers.BooleanField(
+        default=True,
+        required=False,
+        help_text="Whether to deduct lead credits from providers (default True, set False for complimentary leads)."
     )
     max_providers = serializers.IntegerField(default=10, min_value=1, max_value=50)
     
@@ -715,6 +764,8 @@ class LeadManualDistributionSerializer(serializers.Serializer):
         """
         Validate provider IDs exist and are active
         """
+        if not value:
+            return value
         existing_ids = ServiceProviderProfile.objects.filter(
             id__in=value,
             verification_status='verified',
@@ -728,75 +779,125 @@ class LeadManualDistributionSerializer(serializers.Serializer):
     
     def distribute_lead(self):
         """
-        Perform manual lead distribution
+        Perform manual lead distribution with subscription and credit validation
         """
         lead_id = self.validated_data['lead_id']
         business_types = self.validated_data.get('business_types')
         provider_ids = self.validated_data.get('provider_ids')
-        max_providers = self.validated_data['max_providers']
+        only_subscribed = self.validated_data.get('only_subscribed_providers', True)
+        plan_types = self.validated_data.get('plan_types')
+        deduct_credits = self.validated_data.get('deduct_credits', True)
+        max_providers = self.validated_data.get('max_providers', 10)
         
         lead = Lead.objects.get(id=lead_id)
+        now = timezone.now()
         
         with transaction.atomic():
-            target_providers = None
+            base_qs = ServiceProviderProfile.objects.filter(
+                verification_status='verified',
+                is_active=True
+            ).select_related(
+                'user', 'user__credit_wallet'
+            ).prefetch_related(
+                'user__subscriptions__plan'
+            )
             
             if provider_ids:
-                # Use specific provider IDs
-                target_providers = ServiceProviderProfile.objects.filter(
-                    id__in=provider_ids,
-                    verification_status='verified',
-                    is_active=True
-                )
+                # Use specific provider IDs chosen by admin
+                target_providers = base_qs.filter(id__in=provider_ids)
             elif business_types:
                 # Use specified business types
-                target_providers = ServiceProviderProfile.objects.filter(
-                    business_type__in=business_types,
-                    verification_status='verified',
-                    is_active=True
-                )
+                target_providers = base_qs.filter(business_type__in=business_types)
             else:
                 # Auto-determine business types based on lead content
                 serializer = LeadCreateSerializer()
                 target_business_types = serializer.get_target_business_types(lead)
-                target_providers = ServiceProviderProfile.objects.filter(
-                    business_type__in=target_business_types,
-                    verification_status='verified',
-                    is_active=True
+                target_providers = base_qs.filter(business_type__in=target_business_types)
+            
+            # Filter for active subscription if requested
+            if only_subscribed:
+                target_providers = target_providers.filter(
+                    user__subscriptions__status='active',
+                    user__subscriptions__start_date__lte=now,
+                    user__subscriptions__end_date__gte=now
+                )
+            
+            # Filter for specific plan types if requested
+            if plan_types:
+                target_providers = target_providers.filter(
+                    user__subscriptions__status='active',
+                    user__subscriptions__start_date__lte=now,
+                    user__subscriptions__end_date__gte=now,
+                    user__subscriptions__plan__plan_type__in=plan_types
                 )
             
             # Exclude providers who already received this lead
             target_providers = target_providers.exclude(
                 id__in=LeadDistribution.objects.filter(lead=lead).values_list('provider_id', flat=True)
-            ).order_by('-is_featured', '-average_rating', '-total_bookings')[:max_providers]
+            ).distinct()
             
-            # Create lead distributions
+            # Rank providers: 1 Growth (highest credits), 2 Ultra, 3 Premium, 4 Basic, 5 Free
+            def get_priority(p):
+                sub = p.get_active_subscription()
+                ptype = sub.plan.plan_type if (sub and sub.plan) else 'free'
+                bal = getattr(p, 'credit_balance', 0)
+                if ptype == 'growth' and bal > 0:
+                    tier = 1
+                elif ptype == 'ultra_premium':
+                    tier = 2
+                elif ptype == 'premium':
+                    tier = 3
+                elif ptype == 'basic':
+                    tier = 4
+                else:
+                    tier = 5
+                return (tier, -bal if tier == 1 else 0, -float(p.average_rating or 0))
+            
+            provider_list = list(target_providers)
+            provider_list.sort(key=get_priority)
+            
+            # Cap providers if provider_ids not explicitly selected
+            if not provider_ids:
+                provider_list = provider_list[:max_providers]
+            
+            # Create lead distributions idempotently
             distributions = []
-            for provider in target_providers:
-                distribution = LeadDistribution.objects.create(
+            for provider in provider_list:
+                dist, created = LeadDistribution.objects.get_or_create(
                     lead=lead,
                     provider=provider,
-                    status='sent'
+                    defaults={'status': 'sent'}
                 )
-                distributions.append(distribution)
-                
-                # Deduct credits for lead asynchronously (Growth Plan only)
-                try:
-                    from apps.subscriptions.tasks import deduct_lead_credits_task
-                    deduct_lead_credits_task.delay(provider.id, lead.id)
-                except Exception:
-                    from apps.subscriptions.services import CreditService
-                    CreditService.deduct_lead_credits(provider, lead)
+                if created:
+                    distributions.append(dist)
+                    
+                    # Deduct credits if requested
+                    if deduct_credits:
+                        try:
+                            from apps.subscriptions.tasks import deduct_lead_credits_task
+                            deduct_lead_credits_task.delay(provider.id, lead.id)
+                        except Exception:
+                            from apps.subscriptions.services import CreditService
+                            CreditService.deduct_lead_credits(provider, lead)
+                    
+                    # Send lead notification to provider user
+                    try:
+                        from apps.notifications.services import NotificationService
+                        if provider.user:
+                            NotificationService.send_lead_received_notification(lead, provider.user)
+                    except Exception as e:
+                        logger.warning(f"Notification error for provider {provider.id}: {e}")
             
             # Update lead status
             if distributions:
                 lead.is_distributed = True
                 lead.distribution_date = timezone.now()
-                lead.save()
+                lead.save(update_fields=['is_distributed', 'distribution_date', 'updated_at'])
             
             return {
                 'lead': lead,
                 'distributions': distributions,
-                'message': f'Lead distributed to {len(distributions)} providers'
+                'message': f'Lead successfully distributed to {len(distributions)} provider(s)'
             }
 
 

@@ -88,7 +88,7 @@ class PackageFilter(django_filters.FilterSet):
     )
     
     provider_location = django_filters.CharFilter(
-        field_name='provider__city',
+        field_name='provider__business_city',
         lookup_expr='icontains'
     )
     
@@ -96,6 +96,10 @@ class PackageFilter(django_filters.FilterSet):
     status = django_filters.ChoiceFilter(
         field_name='status',
         choices=Package.STATUS_CHOICES
+    )
+    
+    is_active = django_filters.BooleanFilter(
+        field_name='is_active'
     )
     
     # Availability filters
@@ -151,7 +155,7 @@ class PackageFilter(django_filters.FilterSet):
     class Meta:
         model = Package
         fields = [
-            'name', 'package_type', 'status', 'is_featured',
+            'name', 'package_type', 'status', 'is_active', 'is_featured',
             'provider_id', 'is_available', 'departure_city', 'group_departure_dates_contains'
         ]
     
@@ -216,8 +220,12 @@ class PackageFilter(django_filters.FilterSet):
             return queryset.filter(
                 models.Q(name__icontains=value) |
                 models.Q(description__icontains=value) |
+                models.Q(short_description__icontains=value) |
+                models.Q(departure_city__icontains=value) |
+                models.Q(city__icontains=value) |
+                models.Q(state__icontains=value) |
                 models.Q(provider__business_name__icontains=value) |
-                models.Q(provider__city__icontains=value) |
+                models.Q(provider__business_city__icontains=value) |
                 models.Q(inclusions__title__icontains=value) |
                 models.Q(itineraries__title__icontains=value) |
                 models.Q(itineraries__description__icontains=value)

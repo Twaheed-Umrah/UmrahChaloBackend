@@ -1017,7 +1017,12 @@ class ServiceProviderListView(generics.ListAPIView):
     pagination_class = CustomPagination
     
     def get_queryset(self):
-        queryset = ServiceProviderProfile.objects.filter(is_active=True)
+        queryset = ServiceProviderProfile.objects.filter(is_active=True).select_related(
+            'user', 'user__credit_wallet'
+        ).prefetch_related(
+            'user__subscriptions__plan',
+            'media'
+        )
         
         # Filter by verification status
         verification_status = self.request.query_params.get('verification_status')
@@ -1106,45 +1111,47 @@ class ServiceProviderListView(generics.ListAPIView):
             # Sub & Credit Info
             balance = 0
             sub_start_date = datetime.max.replace(tzinfo=None) # Default to latest for non-subscribers
-            has_priority_plan = False
             
-            # Fetch balance
-            try:
-                balance = provider.user.creditwallet.balance
-            except:
-                pass
+            # Fetch balance safely
+            balance = getattr(provider, 'credit_balance', 0)
             
             # Fetch active subscription for seniority and tiering
             sub = provider.get_active_subscription()
-            if sub and sub.plan.plan_type in ['ultra_premium', 'growth']:
-                has_priority_plan = True
-                sub_start_date = sub.start_date.replace(tzinfo=None) if sub.start_date else sub_start_date
+            plan_type = sub.plan.plan_type if (sub and sub.plan) else 'free'
+            has_priority_listing = getattr(sub.plan, 'priority_listing', False) if (sub and sub.plan) else False
+            if sub and sub.start_date:
+                sub_start_date = sub.start_date.replace(tzinfo=None)
 
-            # --- Tiering Logic ---
-            # Tier 1: High Credit Growth/Ultra (Balance >= 10)
-            # Tier 2: Low Credit Growth/Ultra (Balance < 10) -> Rotated
-            # Tier 3: Others
+            # --- Exact Platform Plan Hierarchy ---
+            # 1. Growth Plan (with active credits > 0)
+            # 2. Ultra Premium
+            # 3. Premium
+            # 4. Basic
+            # 5. Free / Depleted Growth / Unsubscribed
+            if plan_type == 'growth' and balance > 0:
+                tier = 1
+            elif plan_type == 'ultra_premium':
+                tier = 2
+            elif plan_type == 'premium' or has_priority_listing:
+                tier = 3
+            elif plan_type == 'basic':
+                tier = 4
+            else:
+                tier = 5
             
-            tier = 3
-            if has_priority_plan:
-                tier = 1 if balance >= 10 else 2
+            # Hourly rotation score so paying providers in the same tier rotate fairly throughout the day
+            seed = f"{provider.id}-{current_hour_str}"
+            rotation_score = int(hashlib.md5(seed.encode()).hexdigest(), 16)
             
-            # Rotation score for Tier 2
-            rotation_score = 0
-            if tier == 2:
-                seed = f"{provider.id}-{current_hour_str}"
-                rotation_score = int(hashlib.md5(seed.encode()).hexdigest(), 16)
-            
-            # Priority Score for sorting
-            # Tiers: lower is better for top-level sort
+            # Priority Score for sorting (lowest tuple values come first)
             return (
-                not is_verified, # False (0) is better than True (1)
-                not is_featured,
-                tier, 
-                -balance if tier == 1 else 0, # Higher balance first
-                sub_start_date if tier == 1 else datetime.max.replace(tzinfo=None), # Earlier start date first
-                -rotation_score if tier == 2 else 0, # Shuffled order for Tier 2
-                -float(provider.average_rating or 0) # Final tie-breaker
+                not is_verified, # False (0) before True (1): Verified first
+                not is_featured, # Featured first
+                tier,            # 1 Growth > 2 Ultra > 3 Premium > 4 Basic > 5 Free
+                -balance if tier == 1 else 0, # Higher credit balance first in Growth Tier 1
+                -rotation_score if tier in [1, 2, 3] else 0, # Fair hourly rotation among paying tiers
+                sub_start_date,  # Seniority
+                -float(provider.average_rating or 0) # Ratings tie-breaker
             )
 
         # Sort the list
@@ -2498,7 +2505,7 @@ def get_nearby_providers(request):
     # Corrected fix: Calculate longitude radius properly using cosine
     lng_range = radius / (111.32 * math.cos(math.radians(user_lat)))
 
-    # Step 1: Fast Bounding Box Filter
+    # Step 1: Fast Bounding Box Filter (Enterprise Eager Loaded)
     queryset = ServiceProviderProfile.objects.filter(
         is_active=True,
         verification_status='verified',
@@ -2509,6 +2516,11 @@ def get_nearby_providers(request):
     ).exclude(
         user__latitude__isnull=True,
         user__longitude__isnull=True
+    ).select_related(
+        'user', 'user__credit_wallet'
+    ).prefetch_related(
+        'user__subscriptions__plan',
+        'growth_areas'
     )
 
     business_type = request.GET.get('business_type')
@@ -2534,53 +2546,50 @@ def get_nearby_providers(request):
         is_featured = provider.is_featured
         
         # Sub & Credit Info
-        balance = 0
+        balance = getattr(provider, 'credit_balance', 0)
         sub_start_date = datetime.max.replace(tzinfo=None)
-        has_priority_plan = False
-        
-        try:
-            balance = provider.user.creditwallet.balance
-        except:
-            pass
         
         sub = provider.get_active_subscription()
-        if sub and sub.plan.plan_type in ['ultra_premium', 'growth']:
-            has_priority_plan = True
-            sub_start_date = sub.start_date.replace(tzinfo=None) if sub.start_date else sub_start_date
+        plan_type = sub.plan.plan_type if (sub and sub.plan) else 'free'
+        has_priority_listing = getattr(sub.plan, 'priority_listing', False) if (sub and sub.plan) else False
+        if sub and sub.start_date:
+            sub_start_date = sub.start_date.replace(tzinfo=None)
 
-        # Pincode/Area Check
+        # Pincode/Area Check (Geofencing)
         has_area_boost = False
         if pincode:
             has_area_boost = provider.growth_areas.filter(pincode=pincode, is_active=True).exists()
 
-        # Tiering
-        # Tier 0: Area Boost + High Credit
-        # Tier 1: General Growth + High Credit
-        # Tier 2: Area Boost + Low Credit (Rotated)
-        # Tier 3: General Growth + Low Credit (Rotated)
-        # Tier 4: Featured
-        # Tier 5: Others
-        
-        tier = 5
-        if has_priority_plan:
-            if balance >= 10:
-                tier = 0 if has_area_boost else 1
-            else:
-                tier = 2 if has_area_boost else 3
-        elif is_featured:
+        # Exact Platform Hierarchy for Nearby:
+        # Tier 0: Growth Plan with Area Boost (Pincode Match + Credits > 0)
+        # Tier 1: Growth Plan General (Credits > 0)
+        # Tier 2: Ultra Premium
+        # Tier 3: Premium Plan
+        # Tier 4: Basic Plan
+        # Tier 5: Free / Depleted / Unsubscribed
+        if has_area_boost and plan_type == 'growth' and balance > 0:
+            tier = 0
+        elif plan_type == 'growth' and balance > 0:
+            tier = 1
+        elif plan_type == 'ultra_premium':
+            tier = 2
+        elif plan_type == 'premium' or has_priority_listing:
+            tier = 3
+        elif plan_type == 'basic':
             tier = 4
+        else:
+            tier = 5
         
-        # Rotation for Tiers 2 and 3
-        rotation_score = 0
-        if tier in [2, 3]:
-            seed = f"{provider.id}-{current_hour_str}"
-            rotation_score = int(hashlib.md5(seed.encode()).hexdigest(), 16)
+        # Hourly rotation for paid tiers so multiple providers in same tier rotate fairly
+        seed = f"{provider.id}-{current_hour_str}"
+        rotation_score = int(hashlib.md5(seed.encode()).hexdigest(), 16)
         
         return (
+            not is_featured, # Platform Featured takes precedence
             tier,
             -balance if tier in [0, 1] else 0,
-            sub_start_date if tier in [0, 1] else datetime.max.replace(tzinfo=None),
-            -rotation_score if tier in [2, 3] else 0,
+            -rotation_score if tier in [0, 1, 2, 3] else 0,
+            sub_start_date,
             -float(provider.average_rating or 0)
         )
 
@@ -2624,7 +2633,42 @@ def get_provider_contact(request, provider_id):
     """
     provider = get_object_or_404(ServiceProviderProfile, id=provider_id)
 
-    # Check if provider has an active Growth Plan before doing anything
+    package_id = request.query_params.get('package_id')
+    service_id = request.query_params.get('service_id')
+
+    # Automatically create a Lead for this contact reveal action
+    from apps.leads.models import Lead, LeadDistribution
+    from apps.packages.models import Package
+    from apps.services.models import Service
+
+    pkg_obj = Package.objects.filter(id=package_id).first() if package_id else None
+    srv_obj = Service.objects.filter(id=service_id).first() if service_id else None
+
+    pilgrim_name = request.user.get_full_name() or request.user.username or 'Pilgrim Contact View'
+    pilgrim_phone = getattr(request.user, 'phone', '') or ''
+    pilgrim_email = getattr(request.user, 'email', '') or ''
+
+    lead = None
+    try:
+        lead = Lead.objects.create(
+            user=request.user,
+            service_provider=provider,
+            package=pkg_obj,
+            service=srv_obj,
+            lead_type='contact_view',
+            status='pending',
+            full_name=pilgrim_name,
+            phone=pilgrim_phone or 'N/A',
+            email=pilgrim_email,
+            special_requirements=f"Pilgrim viewed contact details for {provider.business_name}",
+            source='contact_reveal'
+        )
+        # Ensure lead is distributed to the provider so it shows on their dashboard immediately
+        LeadDistribution.objects.get_or_create(lead=lead, provider=provider, defaults={'status': 'sent'})
+    except Exception as e:
+        logger.error(f"Error creating lead on contact view: {e}")
+
+    # Check if provider has an active Growth Plan before credit deduction
     from apps.subscriptions.models import Subscription
     from django.utils import timezone as tz
     has_growth = Subscription.objects.filter(
@@ -2635,59 +2679,27 @@ def get_provider_contact(request, provider_id):
         end_date__gte=tz.now()
     ).exists()
 
-    if not has_growth:
-        # No Growth Plan – just return contact info freely
-        return Response({
-            'business_phone': provider.business_phone,
-            'business_email': provider.business_email,
-            'message': 'Contact retrieved successfully.'
-        }, status=status.HTTP_200_OK)
+    if has_growth:
+        try:
+            from apps.subscriptions.tasks import deduct_lead_credits_task
+            deduct_lead_credits_task.delay(provider.id, user_id=request.user.id)
+            
+            # Distribute lead to nearby providers if configured
+            if lead:
+                from apps.leads.serializers import LeadCreateSerializer
+                serializer = LeadCreateSerializer()
+                serializer.distribute_lead(lead)
+        except Exception as e:
+            logger.error(f"Error in growth plan processing for contact view: {str(e)}")
+            from apps.subscriptions.services import CreditService
+            CreditService.deduct_lead_credits(provider, user=request.user)
 
-    # Provider has Growth Plan – return contact info first, deduct credits asynchronously
-    # AND trigger a lead distribution event for nearby providers
-    response_data = {
+    return Response({
         'business_phone': provider.business_phone,
         'business_email': provider.business_email,
-        'message': 'Contact retrieved. Credits will be deducted shortly.'
-    }
-
-    try:
-        from apps.subscriptions.tasks import deduct_lead_credits_task
-        deduct_lead_credits_task.delay(provider.id, user_id=request.user.id)
-        
-        # Trigger lead creation and distribution for this contact view
-        from apps.leads.models import Lead
-        from apps.leads.serializers import LeadCreateSerializer
-        
-        # Create a "pseudo-lead" or actual lead record to trigger distribution
-        lead = Lead.objects.create(
-            user=request.user,
-            lead_type='contact_view',
-            status='pending',
-            description=f"User viewed contact details for {provider.business_name}"
-        )
-        
-        # If the view was on a specific package/service, we should link it
-        # (Need to check if package_id or service_id passed in query params)
-        package_id = request.query_params.get('package_id')
-        service_id = request.query_params.get('service_id')
-        if package_id:
-            lead.package_id = package_id
-        if service_id:
-            lead.service_id = service_id
-        lead.save()
-
-        # Distribute lead to nearby providers
-        serializer = LeadCreateSerializer()
-        serializer.distribute_lead(lead)
-
-    except Exception as e:
-        logger.error(f"Error in lead distribution for contact view: {str(e)}")
-        # Fallback to synchronous deduction if task fails
-        from apps.subscriptions.services import CreditService
-        CreditService.deduct_lead_credits(provider, user=request.user)
-
-    return Response(response_data, status=status.HTTP_200_OK)
+        'lead_id': lead.id if lead else None,
+        'message': 'Contact retrieved and lead registered successfully.'
+    }, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])

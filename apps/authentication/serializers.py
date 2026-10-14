@@ -560,6 +560,18 @@ class ServiceProviderProfileSerializer(serializers.ModelSerializer):
         from apps.leads.models import LeadDistribution
         return LeadDistribution.objects.filter(provider=obj, lead__lead_type='contact_view').count()
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        is_owner_or_admin = (
+            request and request.user.is_authenticated and
+            (request.user.is_staff or getattr(request.user, 'user_type', '') in ['admin', 'super_admin'] or instance.user_id == request.user.id)
+        )
+        if not is_owner_or_admin:
+            # Mask phone number so unauthenticated visitors cannot view it without login/lead generation
+            data['business_phone'] = None
+        return data
+
 class ServiceProviderListSerializer(serializers.ModelSerializer):
     """
     Detailed Service Provider serializer for listing
@@ -613,6 +625,19 @@ class ServiceProviderListSerializer(serializers.ModelSerializer):
                 'plan_type': sub.plan.plan_type,
             }
         return None
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        is_owner_or_admin = (
+            request and request.user.is_authenticated and
+            (request.user.is_staff or getattr(request.user, 'user_type', '') in ['admin', 'super_admin'] or instance.user_id == request.user.id)
+        )
+        if not is_owner_or_admin:
+            # Mask private phone numbers from public listing endpoints
+            data['business_phone'] = None
+            data['user_phone'] = None
+        return data
 
 # Activity and Tracking Serializers
 class UserActivitySerializer(serializers.ModelSerializer):

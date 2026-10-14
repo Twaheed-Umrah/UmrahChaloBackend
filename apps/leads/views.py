@@ -6,8 +6,9 @@ from django.db.models import Q, Count, F, Case, When, Value, IntegerField
 from django.utils import timezone
 from django.db import transaction
 from django_filters.rest_framework import DjangoFilterBackend
-from apps.core.permissions import IsOwnerOrReadOnly, IsProviderOrReadOnly
+from apps.core.permissions import IsOwnerOrReadOnly, IsProviderOrReadOnly, IsAdminOrSuperAdmin
 from apps.core.pagination import LargeResultsSetPagination
+from apps.authentication.models import ServiceProviderProfile
 from .models import Lead, LeadDistribution, LeadInteraction, LeadNote
 from .serializers import (
     LeadSerializer, LeadCreateSerializer, LeadDistributionSerializer,
@@ -44,10 +45,11 @@ class LeadViewSet(viewsets.ModelViewSet):
                 'user', 'package', 'service'
             ).prefetch_related('distributions')
         
-        # Service providers can only see distributed leads
+        # Service providers can see distributed leads and directly assigned leads
         if hasattr(user, 'service_provider_profile'):
             return Lead.objects.filter(
-                distributions__provider=user.service_provider_profile
+                Q(distributions__provider=user.service_provider_profile) |
+                Q(service_provider=user.service_provider_profile)
             ).select_related(
                 'user', 'package', 'service'
             ).prefetch_related('distributions').distinct()
@@ -198,18 +200,118 @@ class LeadViewSet(viewsets.ModelViewSet):
         serializer = LeadSummarySerializer(leads, many=True)
         return Response(serializer.data)
     
-    @action(detail=False, methods=['post'], permission_classes=[IsAdminUser])
+    @action(detail=True, methods=['get'], permission_classes=[IsAdminOrSuperAdmin])
+    def eligible_providers(self, request, pk=None):
+        """
+        Get eligible providers for a specific lead with subscription status and credit details.
+        Allows Admin/Superadmin to search and select subscribed providers before manual distribution.
+        """
+        lead = self.get_object()
+        only_subscribed = request.query_params.get('only_subscribed', 'true').lower() == 'true'
+        plan_type = request.query_params.get('plan_type')
+        search = request.query_params.get('search', '').strip()
+        business_type = request.query_params.get('business_type')
+
+        now = timezone.now()
+        queryset = ServiceProviderProfile.objects.filter(
+            verification_status='verified',
+            is_active=True
+        ).select_related(
+            'user', 'user__credit_wallet'
+        ).prefetch_related(
+            'user__subscriptions__plan'
+        )
+
+        if only_subscribed:
+            queryset = queryset.filter(
+                user__subscriptions__status='active',
+                user__subscriptions__start_date__lte=now,
+                user__subscriptions__end_date__gte=now
+            )
+
+        if plan_type:
+            queryset = queryset.filter(
+                user__subscriptions__status='active',
+                user__subscriptions__start_date__lte=now,
+                user__subscriptions__end_date__gte=now,
+                user__subscriptions__plan__plan_type=plan_type
+            )
+
+        if business_type:
+            queryset = queryset.filter(business_type=business_type)
+
+        if search:
+            queryset = queryset.filter(
+                Q(business_name__icontains=search) |
+                Q(user__first_name__icontains=search) |
+                Q(user__last_name__icontains=search) |
+                Q(business_city__icontains=search) |
+                Q(business_phone__icontains=search) |
+                Q(user__phone__icontains=search)
+            )
+
+        already_distributed_ids = set(
+            LeadDistribution.objects.filter(lead=lead).values_list('provider_id', flat=True)
+        )
+
+        provider_list = list(queryset.distinct())
+
+        def get_sort_key(p):
+            sub = p.get_active_subscription()
+            plan = sub.plan.plan_type if (sub and sub.plan) else 'free'
+            balance = getattr(p, 'credit_balance', 0)
+            if plan == 'growth' and balance > 0:
+                tier = 1
+            elif plan == 'ultra_premium':
+                tier = 2
+            elif plan == 'premium':
+                tier = 3
+            elif plan == 'basic':
+                tier = 4
+            else:
+                tier = 5
+            return (
+                tier,
+                -balance if tier == 1 else 0,
+                -float(p.average_rating or 0),
+                p.business_name or ''
+            )
+
+        provider_list.sort(key=get_sort_key)
+
+        data = []
+        for p in provider_list:
+            sub = p.get_active_subscription()
+            plan_obj = sub.plan if (sub and sub.plan) else None
+            data.append({
+                'id': p.id,
+                'business_name': p.business_name or (p.user.get_full_name() if p.user else 'Provider'),
+                'owner_name': p.user.get_full_name() if p.user else '',
+                'phone': p.business_phone or (p.user.phone if p.user else ''),
+                'business_type': p.business_type,
+                'city': p.business_city,
+                'state': p.business_state,
+                'has_active_subscription': sub is not None,
+                'plan_name': plan_obj.name if plan_obj else 'No Subscription',
+                'plan_type': plan_obj.plan_type if plan_obj else 'free',
+                'credit_balance': getattr(p, 'credit_balance', 0),
+                'already_distributed': p.id in already_distributed_ids,
+                'rating': float(p.average_rating or 0),
+                'is_featured': p.is_featured
+            })
+
+        return Response(data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAdminOrSuperAdmin])
     def manual_distribute(self, request):
         """
-        Manual lead distribution by superadmin
-        Automatically distributes to providers based on business_type
+        Manual lead distribution by Admin or Superadmin.
+        Supports selecting specific providers and filtering by active subscription.
         """
         serializer = LeadManualDistributionSerializer(data=request.data)
-        
         if serializer.is_valid():
             try:
                 result = serializer.distribute_lead()
-                
                 return Response({
                     'success': True,
                     'message': result['message'],
@@ -218,8 +320,10 @@ class LeadViewSet(viewsets.ModelViewSet):
                     'providers': [
                         {
                             'id': dist.provider.id,
-                            'name': dist.provider.company_name or dist.provider.user.get_full_name(),
-                            'business_type': dist.provider.business_type
+                            'name': dist.provider.business_name or (dist.provider.user.get_full_name() if dist.provider.user else 'Provider'),
+                            'business_type': dist.provider.business_type,
+                            'plan_type': dist.provider.get_active_subscription().plan.plan_type if dist.provider.get_active_subscription() else 'free',
+                            'credit_balance': getattr(dist.provider, 'credit_balance', 0)
                         }
                         for dist in result['distributions']
                     ]
@@ -229,23 +333,47 @@ class LeadViewSet(viewsets.ModelViewSet):
                     {'error': f'Distribution failed: {str(e)}'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-        
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminOrSuperAdmin])
+    def manual_distribute_lead(self, request, pk=None):
+        """
+        Detail action endpoint: POST /api/leads/leads/{id}/manual_distribute_lead/
+        """
+        payload = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
+        payload['lead_id'] = pk
+        serializer = LeadManualDistributionSerializer(data=payload)
+        if serializer.is_valid():
+            try:
+                result = serializer.distribute_lead()
+                return Response({
+                    'success': True,
+                    'message': result['message'],
+                    'lead_id': result['lead'].id,
+                    'distributed_to': len(result['distributions']),
+                    'providers': [
+                        {
+                            'id': dist.provider.id,
+                            'name': dist.provider.business_name or (dist.provider.user.get_full_name() if dist.provider.user else 'Provider'),
+                            'business_type': dist.provider.business_type
+                        }
+                        for dist in result['distributions']
+                    ]
+                })
+            except Exception as e:
+                return Response({'error': f'Distribution failed: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminOrSuperAdmin])
     def redistribute(self, request, pk=None):
         """
         Redistribute a lead to additional providers
         """
         lead = self.get_object()
-        
-        # Use LeadCreateSerializer to get business types and distribute
         serializer = LeadCreateSerializer()
         target_business_types = serializer.get_target_business_types(lead)
-        
         with transaction.atomic():
             distributions = serializer.distribute_lead(lead)
-            
             return Response({
                 'success': True,
                 'message': f'Lead redistributed to {len(distributions)} additional providers',
