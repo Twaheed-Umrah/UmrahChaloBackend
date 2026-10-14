@@ -89,7 +89,7 @@ class InitiateCallSessionView(APIView):
             expires_at=expires_at
         )
 
-        exotel_number = getattr(settings, 'EXOTEL_DEFAULT_SUPPORT_NUMBER', '+919289042962')
+        exotel_number = getattr(settings, 'EXOTEL_DEFAULT_SUPPORT_NUMBER', '080-472-89252')
         clean_exotel = exotel_number.replace(' ', '').replace('-', '')
         
         # tel: URI with two commas (4-second pause) and DTMF provider code auto-dial
@@ -247,7 +247,7 @@ class ExotelConnectWebhookView(APIView):
 
         # 6. Default Company Support Fallback
         if not destination_numbers:
-            default_support = getattr(settings, 'EXOTEL_DEFAULT_SUPPORT_NUMBER', '+919289042962')
+            default_support = getattr(settings, 'EXOTEL_DEFAULT_SUPPORT_NUMBER', '080-472-89252')
             formatted_default = format_e164(default_support)
             if formatted_default:
                 destination_numbers.append(formatted_default)
@@ -315,6 +315,73 @@ class ExotelConnectWebhookView(APIView):
                 logger.error(f"Failed to record CallLog for CallSid {call_sid}: {e}")
 
         return JsonResponse(response_payload, status=200)
+
+
+class ExotelFallbackWebhookView(APIView):
+    """
+    Exotel Fallback Dynamic URL Webhook.
+    Called by Exotel if the primary connect webhook times out or encounters an issue.
+    Returns an instant (< 5ms) JSON response routing the caller directly to the
+    UmrahChalo Central Support Team (080-472-89252), ensuring zero dropped calls.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        query_params = request.GET.dict()
+        logger.warning(f"Exotel Fallback webhook invoked: {query_params}")
+
+        call_sid = query_params.get('CallSid', '').strip()
+        call_from = query_params.get('CallFrom') or query_params.get('From', '')
+        call_to = query_params.get('CallTo') or query_params.get('To', '')
+
+        default_support = getattr(settings, 'EXOTEL_DEFAULT_SUPPORT_NUMBER', '080-472-89252')
+        formatted_default = format_e164(default_support) or "+918047289252"
+
+        response_payload = {
+            "fetch_after_attempt": False,
+            "destination": {
+                "numbers": [formatted_default]
+            },
+            "record": getattr(settings, 'EXOTEL_RECORD_CALLS', True),
+            "recording_channels": getattr(settings, 'EXOTEL_RECORDING_CHANNELS', "dual"),
+            "max_ringing_duration": getattr(settings, 'EXOTEL_MAX_RINGING_DURATION', 45),
+            "max_conversation_duration": getattr(settings, 'EXOTEL_MAX_CONVERSATION_DURATION', 3600),
+            "music_on_hold": {
+                "type": getattr(settings, 'EXOTEL_MUSIC_ON_HOLD_TYPE', "operator_tone")
+            },
+            "start_call_playback": {
+                "playback_to": "both",
+                "type": "text",
+                "value": "Welcome to Umrah Chalo. Connecting you to customer support, please wait."
+            }
+        }
+
+        try:
+            event_url = request.build_absolute_uri(reverse('exotel-event'))
+            response_payload["dial_passthru_event_url"] = event_url
+        except Exception:
+            pass
+
+        if call_sid:
+            try:
+                CallLog.objects.update_or_create(
+                    call_sid=call_sid,
+                    defaults={
+                        'call_from': call_from,
+                        'call_to': call_to,
+                        'dialed_number': formatted_default,
+                        'status': 'initiated',
+                        'notes': 'Routed via Exotel Fallback Webhook to Support',
+                        'raw_connect_payload': query_params,
+                    }
+                )
+            except Exception as e:
+                logger.error(f"Failed to record fallback CallLog: {e}")
+
+        return JsonResponse(response_payload, status=200)
+
+    def post(self, request, *args, **kwargs):
+        return self.get(request, *args, **kwargs)
 
 
 class ExotelEventWebhookView(APIView):

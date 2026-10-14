@@ -4,6 +4,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
     ExotelConnectWebhookView,
+    ExotelFallbackWebhookView,
     ExotelEventWebhookView,
     CallLogViewSet,
     InitiateCallSessionView
@@ -19,6 +20,9 @@ urlpatterns = [
     # Exotel Connect Applet (Dynamic URL) webhook (GET)
     path('exotel/connect/', ExotelConnectWebhookView.as_view(), name='exotel-connect'),
     
+    # Exotel Fallback Webhook (Instant support bridge if primary times out) (GET/POST)
+    path('exotel/fallback/', ExotelFallbackWebhookView.as_view(), name='exotel-fallback'),
+
     # Exotel Event/Passthrough callback webhook (GET/POST)
     path('exotel/event/', ExotelEventWebhookView.as_view(), name='exotel-event'),
     
