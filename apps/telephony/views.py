@@ -95,8 +95,9 @@ class InitiateCallSessionView(APIView):
         exotel_number = getattr(settings, 'EXOTEL_OUTGOING_PHONE_NUMBER', '080-472-89252')
         clean_exotel = exotel_number.replace(' ', '').replace('-', '')
         
-        # tel: URI with two commas (4-second pause) and DTMF provider code auto-dial
-        tel_uri = f"tel:{clean_exotel},,{provider_code}#"
+        # Clean standard tel: URI - no confusing commas, hashes, or extension codes
+        # Direct session matching in ExotelConnectWebhookView links caller automatically
+        tel_uri = f"tel:{clean_exotel}"
 
         return Response({
             'status': 'success',
@@ -104,11 +105,10 @@ class InitiateCallSessionView(APIView):
             'lead_id': created_lead.id if created_lead else None,
             'provider_id': provider.id,
             'provider_name': provider.business_name or (provider.user.get_full_name() if provider.user else 'Provider'),
-            'provider_code': provider_code,
             'exotel_number': exotel_number,
             'tel_uri': tel_uri,
             'expires_at': expires_at.isoformat(),
-            'message': 'Call session established and lead registered. Dialer will connect automatically.'
+            'message': f'Call session established. Tap to call {exotel_number} to connect directly with {provider.business_name}.'
         }, status=200)
 
 
@@ -184,9 +184,10 @@ class ExotelConnectWebhookView(APIView):
                     lead = Lead.objects.filter(id=l_id).first()
                     if lead:
                         matched_lead = lead
-                        if hasattr(lead, 'assigned_provider') and lead.assigned_provider:
-                            matched_provider = lead.assigned_provider
-                            phone = lead.assigned_provider.business_phone or lead.assigned_provider.user.phone
+                        lead_prov = getattr(lead, 'service_provider', None) or getattr(lead, 'assigned_provider', None)
+                        if lead_prov:
+                            matched_provider = lead_prov
+                            phone = lead_prov.business_phone or (lead_prov.user.phone if lead_prov.user else '')
                             formatted = format_e164(phone)
                             if formatted:
                                 destination_numbers.append(formatted)
@@ -244,25 +245,36 @@ class ExotelConnectWebhookView(APIView):
                 recent_lead = Lead.objects.filter(phone__icontains=clean_from).order_by('-created_at').first()
                 if recent_lead:
                     matched_lead = recent_lead
-                    if hasattr(recent_lead, 'assigned_provider') and recent_lead.assigned_provider:
-                        matched_provider = recent_lead.assigned_provider
-                        phone = matched_provider.business_phone or matched_provider.user.phone
+                    lead_prov = getattr(recent_lead, 'service_provider', None) or getattr(recent_lead, 'assigned_provider', None)
+                    if lead_prov:
+                        matched_provider = lead_prov
+                        phone = lead_prov.business_phone or (lead_prov.user.phone if lead_prov.user else '')
                         formatted = format_e164(phone)
                         if formatted:
                             destination_numbers.append(formatted)
 
-        # 6. Default Company Support Fallback
-        if not destination_numbers:
-            default_support = getattr(settings, 'EXOTEL_DEFAULT_SUPPORT_NUMBER', '+919760316409')
-            formatted_default = format_e164(default_support) or "+919760316409"
-            if formatted_default:
-                destination_numbers.append(formatted_default)
+        # 6. Umrah Chalo Support Team Fallback
+        # If an agent is matched, destination_numbers has [agent_phone].
+        # In Exotel, destination.numbers is an array dialed sequentially.
+        # When an agent does not receive the call (timeout or busy), Exotel automatically dials
+        # the next number: the Umrah Chalo Support Team (+919760316409)!
+        default_support = getattr(settings, 'EXOTEL_DEFAULT_SUPPORT_NUMBER', '+919760316409')
+        formatted_default = format_e164(default_support) or "+919760316409"
+        if formatted_default and formatted_default not in destination_numbers:
+            destination_numbers.append(formatted_default)
 
         # Greeting spoken to caller/both before connecting to the provider
         greeting_text = getattr(
             settings,
             'EXOTEL_CALL_GREETING',
             "Welcome to Umrah Chalo. Connecting your call to the service provider, please wait."
+        )
+
+        # If sequential dialing (Agent -> Support fallback), use 25s agent ring timeout
+        ring_duration = (
+            getattr(settings, 'EXOTEL_AGENT_RINGING_DURATION', 25)
+            if len(destination_numbers) > 1
+            else getattr(settings, 'EXOTEL_MAX_RINGING_DURATION', 45)
         )
 
         response_payload = {
@@ -272,7 +284,7 @@ class ExotelConnectWebhookView(APIView):
             },
             "record": getattr(settings, 'EXOTEL_RECORD_CALLS', True),
             "recording_channels": getattr(settings, 'EXOTEL_RECORDING_CHANNELS', "dual"),
-            "max_ringing_duration": getattr(settings, 'EXOTEL_MAX_RINGING_DURATION', 45),
+            "max_ringing_duration": ring_duration,
             "max_conversation_duration": getattr(settings, 'EXOTEL_MAX_CONVERSATION_DURATION', 3600),
             "music_on_hold": {
                 "type": getattr(settings, 'EXOTEL_MUSIC_ON_HOLD_TYPE', "operator_tone")
@@ -424,10 +436,10 @@ class ExotelEventWebhookView(APIView):
 
         dial_status = data.get('DialCallStatus') or data.get('Status')
         dial_duration = data.get('DialCallDuration') or data.get('CallDuration') or data.get('Duration')
-        recording_url = data.get('RecordingUrl')
-        call_type = data.get('CallType')
-        dial_whom = data.get('DialWhomNumber')
-        custom_field = data.get('CustomField', '')
+        recording_url = data.get('RecordingUrl') or data.get('recording_url')
+        call_type = data.get('CallType') or data.get('call_type')
+        dial_whom = data.get('DialWhomNumber') or data.get('DialWhom') or data.get('PhoneNumber')
+        custom_field = data.get('CustomField') or data.get('custom_field', '')
 
         # Determine normalized status
         normalized_status = None

@@ -64,6 +64,11 @@ class CallLogSerializer(serializers.ModelSerializer):
     package_name = serializers.CharField(source='package.name', read_only=True)
     pilgrim_phone = serializers.CharField(read_only=True)
     agent_phone = serializers.CharField(read_only=True)
+    provider_phone = serializers.CharField(read_only=True)
+    support_phone = serializers.CharField(read_only=True)
+    is_support_call = serializers.BooleanField(read_only=True)
+    agent_connected = serializers.BooleanField(read_only=True)
+    connected_with_support = serializers.BooleanField(read_only=True)
     mask_phone = serializers.CharField(read_only=True)
     status_category = serializers.CharField(read_only=True)
     status_label = serializers.CharField(read_only=True)
@@ -90,6 +95,11 @@ class CallLogSerializer(serializers.ModelSerializer):
             'call_to',
             'pilgrim_phone',
             'agent_phone',
+            'provider_phone',
+            'support_phone',
+            'is_support_call',
+            'agent_connected',
+            'connected_with_support',
             'mask_phone',
             'caller_name',
             'direction',
@@ -126,6 +136,11 @@ class CallLogSerializer(serializers.ModelSerializer):
             'call_to',
             'pilgrim_phone',
             'agent_phone',
+            'provider_phone',
+            'support_phone',
+            'is_support_call',
+            'agent_connected',
+            'connected_with_support',
             'mask_phone',
             'direction',
             'destination_numbers',
@@ -163,6 +178,11 @@ class CallLogSerializer(serializers.ModelSerializer):
             data.pop('call_from', None)
             data.pop('mask_phone', None)
             data.pop('agent_phone', None)
+            data.pop('provider_phone', None)
+            data.pop('support_phone', None)
+            data.pop('is_support_call', None)
+            data.pop('agent_connected', None)
+            data.pop('connected_with_support', None)
             data.pop('destination_numbers', None)
             data.pop('dialed_number', None)
             data.pop('flow_id', None)

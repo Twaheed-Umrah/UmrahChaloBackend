@@ -104,22 +104,66 @@ class CallLog(BaseModel):
         return self.call_from or ""
 
     @property
+    def provider_phone(self):
+        """Returns provider's business phone, or empty string if unassigned/support"""
+        if self.provider:
+            return self.provider.business_phone or (self.provider.user.phone if self.provider.user else "")
+        return ""
+
+    @property
+    def support_phone(self):
+        """Returns Central Support phone number"""
+        from django.conf import settings
+        return getattr(settings, 'EXOTEL_DEFAULT_SUPPORT_NUMBER', '+919760316409')
+
+    @property
+    def agent_connected(self):
+        """
+        Returns True if the provider agent successfully answered and completed the call.
+        Returns False if call went to support, missed, failed, or was unassigned.
+        """
+        if not self.provider:
+            return False
+        if self.status != 'completed':
+            return False
+        if self.dialed_number:
+            clean_dialed = str(self.dialed_number).replace('+', '').replace('-', '').replace(' ', '').lstrip('0')[-10:]
+            clean_support = self.support_phone.replace('+', '').replace('-', '').replace(' ', '').lstrip('0')[-10:]
+            if clean_dialed == clean_support:
+                return False
+        return True
+
+    @property
+    def connected_with_support(self):
+        """
+        Returns True if:
+        1. Call had no assigned provider (direct central support call)
+        2. Or agent did not answer/connect and support number was dialed/connected
+        """
+        if self.provider is None:
+            return True
+        if self.dialed_number:
+            clean_dialed = str(self.dialed_number).replace('+', '').replace('-', '').replace(' ', '').lstrip('0')[-10:]
+            clean_support = self.support_phone.replace('+', '').replace('-', '').replace(' ', '').lstrip('0')[-10:]
+            if clean_dialed == clean_support:
+                return True
+        return False
+
+    @property
+    def is_support_call(self):
+        """Returns True if this call connected to Central Support or agent did not connect"""
+        return self.provider is None or self.connected_with_support or not self.agent_connected
+
+    @property
     def agent_phone(self):
         """
         Guarantees returning the real phone number of the provider/agent.
-        - For incoming calls: agent is dialed_number or provider business phone
-        - For outbound bridge calls: agent is call_from
+        If call was routed to Support Team, returns the Support Desk phone.
         """
         if self.direction == 'outbound-api':
             return self.call_from or (self.provider.business_phone if self.provider else "")
         if self.provider and (self.provider.business_phone or (self.provider.user and self.provider.user.phone)):
             return self.provider.business_phone or self.provider.user.phone
-        if self.dialed_number and '8047289252' not in self.dialed_number:
-            return self.dialed_number
-        if self.destination_numbers and len(self.destination_numbers) > 0:
-            dest = self.destination_numbers[0]
-            if dest and '8047289252' not in dest:
-                return dest
         from django.conf import settings
         return getattr(settings, 'EXOTEL_DEFAULT_SUPPORT_NUMBER', '+919760316409')
 

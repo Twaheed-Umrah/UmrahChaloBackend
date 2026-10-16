@@ -468,6 +468,7 @@ EXOTEL_OUTGOING_PHONE_NUMBER = config('EXOTEL_OUTGOING_PHONE_NUMBER', default='0
 EXOTEL_RECORD_CALLS = config('EXOTEL_RECORD_CALLS', default=True, cast=bool)
 EXOTEL_RECORDING_CHANNELS = config('EXOTEL_RECORDING_CHANNELS', default='dual')
 EXOTEL_MAX_RINGING_DURATION = config('EXOTEL_MAX_RINGING_DURATION', default=45, cast=int)
+EXOTEL_AGENT_RINGING_DURATION = config('EXOTEL_AGENT_RINGING_DURATION', default=25, cast=int)
 EXOTEL_MAX_CONVERSATION_DURATION = config('EXOTEL_MAX_CONVERSATION_DURATION', default=3600, cast=int)
 EXOTEL_MUSIC_ON_HOLD_TYPE = config('EXOTEL_MUSIC_ON_HOLD_TYPE', default='operator_tone')
 EXOTEL_CALL_GREETING = config('EXOTEL_CALL_GREETING', default='Welcome to Umrah Chalo. Connecting your call to the service provider, please wait.')
