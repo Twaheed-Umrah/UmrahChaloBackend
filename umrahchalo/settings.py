@@ -463,17 +463,17 @@ EXOTEL_API_TOKEN = config('EXOTEL_API_TOKEN', default='')
 EXOTEL_SUBDOMAIN = config('EXOTEL_SUBDOMAIN', default='api.exotel.com')
 EXOTEL_STATUS_CALLBACK_URL = config('EXOTEL_STATUS_CALLBACK_URL', default='https://umrahapi.umrachalo.com/api/v1/telephony/exotel/event/')
 
-EXOTEL_DEFAULT_SUPPORT_NUMBER = config('EXOTEL_DEFAULT_SUPPORT_NUMBER', default='080-472-89252')
+EXOTEL_DEFAULT_SUPPORT_NUMBER = config('EXOTEL_DEFAULT_SUPPORT_NUMBER', default='+919760316409')
 EXOTEL_OUTGOING_PHONE_NUMBER = config('EXOTEL_OUTGOING_PHONE_NUMBER', default='080-472-89252')
 EXOTEL_RECORD_CALLS = config('EXOTEL_RECORD_CALLS', default=True, cast=bool)
 EXOTEL_RECORDING_CHANNELS = config('EXOTEL_RECORDING_CHANNELS', default='dual')
 EXOTEL_MAX_RINGING_DURATION = config('EXOTEL_MAX_RINGING_DURATION', default=45, cast=int)
 EXOTEL_MAX_CONVERSATION_DURATION = config('EXOTEL_MAX_CONVERSATION_DURATION', default=3600, cast=int)
 EXOTEL_MUSIC_ON_HOLD_TYPE = config('EXOTEL_MUSIC_ON_HOLD_TYPE', default='operator_tone')
-EXOTEL_CALL_GREETING = config('EXOTEL_CALL_GREETING', default='Connecting your call, please wait.')
+EXOTEL_CALL_GREETING = config('EXOTEL_CALL_GREETING', default='Welcome to Umrah Chalo. Connecting your call to the service provider, please wait.')
 EXOTEL_IVR_ROUTING = {
-    '1': config('EXOTEL_IVR_1', default='080-472-89252'),  # Option 1: Umrah & Hajj Packages
-    '2': config('EXOTEL_IVR_2', default='080-472-89252'),  # Option 2: Visa & Flights
-    '3': config('EXOTEL_IVR_3', default='080-472-89252'),  # Option 3: Customer Support
+    '1': config('EXOTEL_IVR_1', default='+919760316409'),  # Option 1: Umrah & Hajj Packages
+    '2': config('EXOTEL_IVR_2', default='+919760316409'),  # Option 2: Visa & Flights
+    '3': config('EXOTEL_IVR_3', default='+919760316409'),  # Option 3: Customer Support
 }
 

@@ -112,22 +112,25 @@ class CallLog(BaseModel):
         """
         if self.direction == 'outbound-api':
             return self.call_from or (self.provider.business_phone if self.provider else "")
-        if self.dialed_number:
-            return self.dialed_number
-        if self.destination_numbers and len(self.destination_numbers) > 0:
-            return self.destination_numbers[0]
         if self.provider and (self.provider.business_phone or (self.provider.user and self.provider.user.phone)):
             return self.provider.business_phone or self.provider.user.phone
-        return ""
+        if self.dialed_number and '8047289252' not in self.dialed_number:
+            return self.dialed_number
+        if self.destination_numbers and len(self.destination_numbers) > 0:
+            dest = self.destination_numbers[0]
+            if dest and '8047289252' not in dest:
+                return dest
+        from django.conf import settings
+        return getattr(settings, 'EXOTEL_DEFAULT_SUPPORT_NUMBER', '+919760316409')
 
     @property
     def mask_phone(self):
         """The virtual ExoPhone number (e.g. 080-472-89252) used for privacy masking"""
         from django.conf import settings
-        default_support = getattr(settings, 'EXOTEL_DEFAULT_SUPPORT_NUMBER', '080-472-89252')
+        default_outgoing = getattr(settings, 'EXOTEL_OUTGOING_PHONE_NUMBER', '080-472-89252')
         if self.direction == 'incoming' and self.call_to:
             return self.call_to
-        return default_support
+        return default_outgoing
 
     @property
     def status_category(self):
@@ -135,7 +138,7 @@ class CallLog(BaseModel):
         s = (self.status or '').lower()
         if s == 'completed':
             return 'received'
-        elif s in ['no-answer', 'busy', 'canceled', 'failed', 'incomplete']:
+        elif s in ['no-answer', 'busy', 'canceled', 'failed', 'incomplete', 'free', 'timeout']:
             return 'missed'
         elif s == 'client-hangup':
             return 'cut'

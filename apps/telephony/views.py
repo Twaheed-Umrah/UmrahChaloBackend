@@ -46,7 +46,9 @@ class InitiateCallSessionView(APIView):
 
         # If pilgrim is authenticated and phone wasn't passed in payload, use user's phone
         if not pilgrim_phone and request.user.is_authenticated:
-            pilgrim_phone = getattr(request.user, 'phone', '') or ''
+            pilgrim_phone = getattr(request.user, 'phone', '') or getattr(request.user, 'mobile_number', '') or ''
+            if not pilgrim_phone and hasattr(request.user, 'profile'):
+                pilgrim_phone = getattr(request.user.profile, 'phone', '') or getattr(request.user.profile, 'mobile_number', '') or ''
 
         clean_phone = format_e164(pilgrim_phone) if pilgrim_phone else ''
         provider_code = str(provider.id)
@@ -90,7 +92,7 @@ class InitiateCallSessionView(APIView):
             expires_at=expires_at
         )
 
-        exotel_number = getattr(settings, 'EXOTEL_DEFAULT_SUPPORT_NUMBER', '080-472-89252')
+        exotel_number = getattr(settings, 'EXOTEL_OUTGOING_PHONE_NUMBER', '080-472-89252')
         clean_exotel = exotel_number.replace(' ', '').replace('-', '')
         
         # tel: URI with two commas (4-second pause) and DTMF provider code auto-dial
@@ -251,8 +253,8 @@ class ExotelConnectWebhookView(APIView):
 
         # 6. Default Company Support Fallback
         if not destination_numbers:
-            default_support = getattr(settings, 'EXOTEL_DEFAULT_SUPPORT_NUMBER', '080-472-89252')
-            formatted_default = format_e164(default_support)
+            default_support = getattr(settings, 'EXOTEL_DEFAULT_SUPPORT_NUMBER', '+919760316409')
+            formatted_default = format_e164(default_support) or "+919760316409"
             if formatted_default:
                 destination_numbers.append(formatted_default)
 
@@ -338,8 +340,8 @@ class ExotelFallbackWebhookView(APIView):
         call_from = query_params.get('CallFrom') or query_params.get('From', '')
         call_to = query_params.get('CallTo') or query_params.get('To', '')
 
-        default_support = getattr(settings, 'EXOTEL_DEFAULT_SUPPORT_NUMBER', '080-472-89252')
-        formatted_default = format_e164(default_support) or "+918047289252"
+        default_support = getattr(settings, 'EXOTEL_DEFAULT_SUPPORT_NUMBER', '+919760316409')
+        formatted_default = format_e164(default_support) or "+919760316409"
 
         response_payload = {
             "fetch_after_attempt": False,
@@ -676,7 +678,7 @@ class CallLogViewSet(viewsets.ModelViewSet):
         if category == 'received':
             qs = qs.filter(status='completed')
         elif category == 'missed':
-            qs = qs.filter(status__in=['no-answer', 'busy', 'failed', 'canceled', 'incomplete'])
+            qs = qs.filter(status__in=['no-answer', 'busy', 'failed', 'canceled', 'incomplete', 'free', 'timeout'])
         elif category == 'cut':
             qs = qs.filter(status='client-hangup')
 
@@ -733,7 +735,7 @@ class CallLogViewSet(viewsets.ModelViewSet):
 
         total = base_qs.count()
         received = base_qs.filter(status='completed').count()
-        missed = base_qs.filter(status__in=['no-answer', 'busy', 'failed', 'canceled', 'incomplete']).count()
+        missed = base_qs.filter(status__in=['no-answer', 'busy', 'failed', 'canceled', 'incomplete', 'free', 'timeout']).count()
         cut = base_qs.filter(status='client-hangup').count()
         total_duration = base_qs.aggregate(t=Coalesce(Sum('duration'), Value(0)))['t']
 
@@ -767,7 +769,7 @@ class CallLogViewSet(viewsets.ModelViewSet):
         qs = ServiceProviderProfile.objects.select_related('user').annotate(
             total_calls=Count('call_logs'),
             received_calls=Count('call_logs', filter=Q(call_logs__status='completed')),
-            missed_calls=Count('call_logs', filter=Q(call_logs__status__in=['no-answer', 'busy', 'failed', 'canceled', 'incomplete'])),
+            missed_calls=Count('call_logs', filter=Q(call_logs__status__in=['no-answer', 'busy', 'failed', 'canceled', 'incomplete', 'free', 'timeout'])),
             cut_calls=Count('call_logs', filter=Q(call_logs__status='client-hangup')),
             total_talk_time=Coalesce(Sum('call_logs__duration'), Value(0))
         )
