@@ -457,6 +457,12 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024  # 50MB
 os.makedirs(BASE_DIR / 'logs', exist_ok=True)
 
 # Exotel Telephony Configuration
+EXOTEL_ACCOUNT_SID = config('EXOTEL_ACCOUNT_SID', default='')
+EXOTEL_API_KEY = config('EXOTEL_API_KEY', default='')
+EXOTEL_API_TOKEN = config('EXOTEL_API_TOKEN', default='')
+EXOTEL_SUBDOMAIN = config('EXOTEL_SUBDOMAIN', default='api.exotel.com')
+EXOTEL_STATUS_CALLBACK_URL = config('EXOTEL_STATUS_CALLBACK_URL', default='https://umrahapi.umrachalo.com/api/v1/telephony/exotel/event/')
+
 EXOTEL_DEFAULT_SUPPORT_NUMBER = config('EXOTEL_DEFAULT_SUPPORT_NUMBER', default='080-472-89252')
 EXOTEL_OUTGOING_PHONE_NUMBER = config('EXOTEL_OUTGOING_PHONE_NUMBER', default='080-472-89252')
 EXOTEL_RECORD_CALLS = config('EXOTEL_RECORD_CALLS', default=True, cast=bool)
@@ -470,3 +476,4 @@ EXOTEL_IVR_ROUTING = {
     '2': config('EXOTEL_IVR_2', default='080-472-89252'),  # Option 2: Visa & Flights
     '3': config('EXOTEL_IVR_3', default='080-472-89252'),  # Option 3: Customer Support
 }
+

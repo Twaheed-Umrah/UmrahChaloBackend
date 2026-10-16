@@ -7,13 +7,17 @@ from .views import (
     ExotelFallbackWebhookView,
     ExotelEventWebhookView,
     CallLogViewSet,
-    InitiateCallSessionView
+    InitiateCallSessionView,
+    OutboundCallConnectView
 )
 
 router = DefaultRouter()
 router.register('logs', CallLogViewSet, basename='telephony-call-log')
 
 urlpatterns = [
+    # Initiate Outbound 2-party bridge call via Exotel API (POST)
+    path('outbound-connect/', OutboundCallConnectView.as_view(), name='outbound-connect'),
+
     # Initiate Click-to-Call session (POST)
     path('call-session/', InitiateCallSessionView.as_view(), name='initiate-call-session'),
 

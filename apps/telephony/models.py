@@ -12,6 +12,7 @@ class CallLog(BaseModel):
     DIRECTION_CHOICES = [
         ('incoming', 'Incoming'),
         ('outbound-dial', 'Outbound Dial'),
+        ('outbound-api', 'Outbound API'),
     ]
 
     STATUS_CHOICES = [

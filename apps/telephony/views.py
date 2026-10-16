@@ -18,6 +18,7 @@ from apps.leads.models import Lead
 from .models import CallLog, CallSession
 from .serializers import CallLogSerializer
 from .utils import format_e164, parse_custom_field
+from .services import ExotelService
 
 logger = logging.getLogger(__name__)
 
@@ -389,14 +390,30 @@ class ExotelEventWebhookView(APIView):
     Exotel event and status callback webhook.
     Tracks received calls (completed), missed calls (no-answer, busy), and cut calls (client-hangup).
     Preserves original pilgrim phone number and links call recording URL.
+    Supports both JSON and form-encoded payloads from Exotel StatusCallback.
     """
     permission_classes = [permissions.AllowAny]
 
     def _process_event(self, request):
-        data = request.POST.dict() if request.method == 'POST' else request.GET.dict()
+        # 1. Extract payload safely from DRF request.data or form/GET query params
+        data = {}
+        if hasattr(request, 'data') and request.data:
+            if hasattr(request.data, 'dict'):
+                data = request.data.dict()
+            elif isinstance(request.data, dict):
+                data = dict(request.data)
+        if not data:
+            data = request.POST.dict() if request.method == 'POST' else request.GET.dict()
+
         logger.info(f"Received Exotel event callback: {data}")
 
-        call_sid = data.get('CallSid', '').strip()
+        # 2. Support nested {"Call": {...}} response structure
+        if 'Call' in data and isinstance(data['Call'], dict):
+            for k, v in data['Call'].items():
+                if k not in data or not data[k]:
+                    data[k] = v
+
+        call_sid = (data.get('CallSid') or data.get('Sid') or '').strip()
         if not call_sid:
             return JsonResponse({"status": "ignored", "reason": "No CallSid provided"}, status=200)
 
@@ -405,48 +422,67 @@ class ExotelEventWebhookView(APIView):
         recording_url = data.get('RecordingUrl')
         call_type = data.get('CallType')
         dial_whom = data.get('DialWhomNumber')
+        custom_field = data.get('CustomField', '')
 
-        # Determine normalized status:
-        # If client hung up -> 'client-hangup'
-        # If conversation happened -> 'completed'
-        # If missed/no answer/busy -> 'no-answer' / 'busy'
+        # Determine normalized status
         normalized_status = None
         if call_type == 'client-hangup':
             normalized_status = 'client-hangup'
         elif dial_status:
-            normalized_status = dial_status.lower()
+            normalized_status = str(dial_status).lower()
         elif call_type:
-            normalized_status = call_type.lower()
+            normalized_status = str(call_type).lower()
+
+        # Parse duration
+        duration_sec = 0
+        if dial_duration:
+            try:
+                duration_sec = int(float(dial_duration))
+            except (ValueError, TypeError):
+                duration_sec = 0
 
         call_log = CallLog.objects.filter(call_sid=call_sid).first()
         if call_log:
             if normalized_status:
                 call_log.status = normalized_status
-            if dial_duration:
-                try:
-                    call_log.duration = int(float(dial_duration))
-                except (ValueError, TypeError):
-                    pass
+            if duration_sec > 0:
+                call_log.duration = duration_sec
             if dial_whom:
                 call_log.dialed_number = dial_whom
             if recording_url:
                 call_log.recording_url = recording_url
             if call_type:
                 call_log.call_type = call_type
+            if custom_field and not call_log.custom_field:
+                call_log.custom_field = custom_field
             call_log.raw_event_payload = data
             call_log.save()
-            logger.info(f"Updated CallLog {call_sid} to status '{normalized_status}' with duration {dial_duration}s")
+            logger.info(f"Updated CallLog {call_sid} to status '{normalized_status}' with duration {duration_sec}s")
         else:
             try:
+                # Attempt to resolve provider/lead from CustomField if available
+                matched_prov = None
+                matched_ld = None
+                if custom_field:
+                    parsed_cf = parse_custom_field(custom_field)
+                    if 'provider_id' in parsed_cf:
+                        matched_prov = ServiceProviderProfile.objects.filter(id=parsed_cf['provider_id']).first()
+                    if 'lead_id' in parsed_cf:
+                        matched_ld = Lead.objects.filter(id=parsed_cf['lead_id']).first()
+
                 CallLog.objects.create(
                     call_sid=call_sid,
                     call_from=data.get('CallFrom') or data.get('From', ''),
                     call_to=data.get('CallTo') or data.get('To', ''),
+                    direction=data.get('Direction', 'outbound-api'),
                     status=normalized_status or 'completed',
-                    duration=int(float(dial_duration)) if dial_duration else 0,
+                    duration=duration_sec,
                     recording_url=recording_url,
                     call_type=call_type or '',
                     dialed_number=dial_whom or '',
+                    custom_field=custom_field,
+                    provider=matched_prov,
+                    lead=matched_ld,
                     raw_event_payload=data
                 )
             except Exception as e:
@@ -459,6 +495,132 @@ class ExotelEventWebhookView(APIView):
 
     def post(self, request, *args, **kwargs):
         return self._process_event(request)
+
+
+class OutboundCallConnectView(APIView):
+    """
+    API to initiate an outbound two-legged call via Exotel's Connect API:
+    POST /v1/Accounts/{account_sid}/Calls/connect.json
+
+    Flow:
+    1. Exotel dials the 'From' number first (e.g. Service Provider / Agent).
+    2. Once answered, Exotel immediately dials the 'To' number (e.g. Pilgrim / Lead).
+    3. Both parties are bridged together into a recorded call.
+    4. Neither party sees each other's private phone number; both see the ExoPhone virtual number.
+
+    Accepted Parameters:
+    - lead_id (int, optional): Auto-resolves Provider, Pilgrim phone, and Package from the lead.
+    - provider_id (int, optional): Specify provider if admin is initiating the call.
+    - package_id (int, optional): Associated package.
+    - from_phone (str, optional): Custom first phone number (required if not provider user).
+    - to_phone (str, optional): Custom destination phone number (required if no lead_id).
+    - caller_id (str, optional): ExoPhone virtual number override.
+    - time_limit (int, optional): Max conversation time in seconds (default 3600).
+    - timeout (int, optional): Ring timeout in seconds (default 45).
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        user = request.user
+        data = request.data
+
+        lead_id = data.get('lead_id')
+        provider_id = data.get('provider_id')
+        package_id = data.get('package_id')
+        from_phone = str(data.get('from_phone', '')).strip()
+        to_phone = str(data.get('to_phone', '')).strip()
+        caller_id = data.get('caller_id')
+        custom_field = data.get('custom_field')
+        time_limit = data.get('time_limit')
+        timeout = data.get('timeout')
+
+        matched_lead = None
+        matched_provider = None
+        matched_package = None
+
+        # 1. Resolve Lead if lead_id is provided
+        if lead_id:
+            try:
+                matched_lead = Lead.objects.select_related('service_provider', 'package').get(id=lead_id)
+                if not to_phone:
+                    to_phone = matched_lead.phone
+                if not matched_package and matched_lead.package:
+                    matched_package = matched_lead.package
+                if not matched_provider and matched_lead.service_provider:
+                    matched_provider = matched_lead.service_provider
+            except Lead.DoesNotExist:
+                return Response({'error': f"Lead with id {lead_id} does not exist."}, status=404)
+
+        # 2. Resolve Package if package_id is provided
+        if package_id and not matched_package:
+            try:
+                from apps.packages.models import Package
+                matched_package = Package.objects.filter(id=package_id).first()
+            except Exception:
+                pass
+
+        # 3. Resolve Provider
+        if hasattr(user, 'service_provider_profile'):
+            matched_provider = user.service_provider_profile
+            if not from_phone:
+                from_phone = matched_provider.business_phone or (user.phone if user.phone else '')
+        elif provider_id:
+            try:
+                matched_provider = ServiceProviderProfile.objects.select_related('user').get(id=provider_id)
+                if not from_phone:
+                    from_phone = matched_provider.business_phone or (matched_provider.user.phone if matched_provider.user else '')
+            except ServiceProviderProfile.DoesNotExist:
+                return Response({'error': f"Provider with id {provider_id} does not exist."}, status=404)
+
+        is_admin = user.is_staff or getattr(user, 'user_type', None) in ['admin', 'super_admin']
+        
+        # 4. If Pilgrim requested a callback
+        if not is_admin and not hasattr(user, 'service_provider_profile'):
+            if not to_phone:
+                to_phone = getattr(user, 'phone', '') or ''
+            if not from_phone and matched_provider:
+                from_phone = matched_provider.business_phone or (matched_provider.user.phone if matched_provider.user else '')
+
+        if not from_phone:
+            return Response({'error': "Missing 'from_phone' (Agent/Provider phone called first)."}, status=400)
+        if not to_phone:
+            return Response({'error': "Missing 'to_phone' (Customer/Pilgrim phone called second)."}, status=400)
+
+        # 5. Call Exotel Outbound Connect Service
+        result = ExotelService.connect_two_numbers(
+            from_phone=from_phone,
+            to_phone=to_phone,
+            caller_id=caller_id,
+            provider=matched_provider,
+            lead=matched_lead,
+            package=matched_package,
+            custom_field=custom_field,
+            time_limit=time_limit,
+            timeout=timeout
+        )
+
+        if result.get('success'):
+            return Response({
+                'status': 'success',
+                'message': 'Outbound call initiated. Exotel is ringing the first party now.',
+                'call_sid': result.get('call_sid'),
+                'call_status': result.get('status'),
+                'call_log_id': result.get('call_log_id'),
+                'from': format_e164(from_phone),
+                'to': format_e164(to_phone),
+                'caller_id': ExotelService.sanitize_caller_id(caller_id),
+                'details': result.get('details')
+            }, status=200)
+        else:
+            status_code = result.get('status_code', 400)
+            if not isinstance(status_code, int) or status_code < 400 or status_code > 599:
+                status_code = 400
+            return Response({
+                'status': 'error',
+                'error': result.get('error', 'Failed to initiate outbound call via Exotel.'),
+                'details': result.get('details', {})
+            }, status=status_code)
+
 
 
 from django.db.models import Count, Q, Sum, Value
