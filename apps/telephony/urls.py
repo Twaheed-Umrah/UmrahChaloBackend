@@ -20,6 +20,7 @@ urlpatterns = [
 
     # Initiate Click-to-Call session (POST)
     path('call-session/', InitiateCallSessionView.as_view(), name='initiate-call-session'),
+    path('initiate-session/', InitiateCallSessionView.as_view(), name='initiate-session'),
 
     # Exotel Connect Applet (Dynamic URL) webhook (GET)
     path('exotel/connect/', ExotelConnectWebhookView.as_view(), name='exotel-connect'),
