@@ -37,10 +37,10 @@ class InitiateCallSessionView(APIView):
         package_id = request.data.get('package_id')
         pilgrim_phone = request.data.get('pilgrim_phone', '').strip()
 
-        if not provider_id:
-            return Response({'error': 'provider_id is required'}, status=400)
+        if not provider_id or not str(provider_id).strip().isdigit():
+            return Response({'error': 'A valid numeric provider_id is required'}, status=400)
 
-        provider = ServiceProviderProfile.objects.filter(id=provider_id).select_related('user').first()
+        provider = ServiceProviderProfile.objects.filter(id=int(provider_id)).select_related('user').first()
         if not provider:
             return Response({'error': f'Provider with id {provider_id} not found'}, status=404)
 
@@ -60,8 +60,8 @@ class InitiateCallSessionView(APIView):
                 from apps.packages.models import Package
 
                 pkg_obj = None
-                if package_id:
-                    pkg_obj = Package.objects.filter(id=package_id).first()
+                if package_id and str(package_id).strip().isdigit():
+                    pkg_obj = Package.objects.filter(id=int(package_id)).first()
 
                 created_lead = Lead.objects.create(
                     user=request.user,
@@ -83,7 +83,7 @@ class InitiateCallSessionView(APIView):
         session = CallSession.objects.create(
             pilgrim_phone=clean_phone,
             provider=provider,
-            package_id=package_id if package_id else None,
+            package_id=int(package_id) if package_id and str(package_id).strip().isdigit() else None,
             lead=created_lead,
             session_code=provider_code,
             is_active=True,
@@ -231,6 +231,9 @@ class ExotelConnectWebhookView(APIView):
                     formatted = format_e164(phone)
                     if formatted:
                         destination_numbers.append(formatted)
+                        # Atomic single-use consumption: deactivate session to prevent stale reuse
+                        recent_session.is_active = False
+                        recent_session.save(update_fields=['is_active'])
 
         # 5. Check Caller's Phone (CallFrom) matching an active Lead
         if not destination_numbers and call_from:
@@ -539,9 +542,9 @@ class OutboundCallConnectView(APIView):
         matched_package = None
 
         # 1. Resolve Lead if lead_id is provided
-        if lead_id:
+        if lead_id and str(lead_id).strip().isdigit():
             try:
-                matched_lead = Lead.objects.select_related('service_provider', 'package').get(id=lead_id)
+                matched_lead = Lead.objects.select_related('service_provider', 'package').get(id=int(lead_id))
                 if not to_phone:
                     to_phone = matched_lead.phone
                 if not matched_package and matched_lead.package:
@@ -552,10 +555,10 @@ class OutboundCallConnectView(APIView):
                 return Response({'error': f"Lead with id {lead_id} does not exist."}, status=404)
 
         # 2. Resolve Package if package_id is provided
-        if package_id and not matched_package:
+        if package_id and str(package_id).strip().isdigit() and not matched_package:
             try:
                 from apps.packages.models import Package
-                matched_package = Package.objects.filter(id=package_id).first()
+                matched_package = Package.objects.filter(id=int(package_id)).first()
             except Exception:
                 pass
 
@@ -564,9 +567,9 @@ class OutboundCallConnectView(APIView):
             matched_provider = user.service_provider_profile
             if not from_phone:
                 from_phone = matched_provider.business_phone or (user.phone if user.phone else '')
-        elif provider_id:
+        elif provider_id and str(provider_id).strip().isdigit():
             try:
-                matched_provider = ServiceProviderProfile.objects.select_related('user').get(id=provider_id)
+                matched_provider = ServiceProviderProfile.objects.select_related('user').get(id=int(provider_id))
                 if not from_phone:
                     from_phone = matched_provider.business_phone or (matched_provider.user.phone if matched_provider.user else '')
             except ServiceProviderProfile.DoesNotExist:
@@ -656,8 +659,10 @@ class CallLogViewSet(viewsets.ModelViewSet):
             
             # Filter by specific provider ID if passed in query
             provider_id = self.request.query_params.get('provider_id')
-            if provider_id:
-                qs = qs.filter(provider_id=provider_id)
+            if provider_id and str(provider_id).strip().isdigit():
+                qs = qs.filter(provider_id=int(provider_id))
+            elif provider_id in ['null', 'none', 'unassigned']:
+                qs = qs.filter(provider__isnull=True)
         # Service Provider sees only their calls
         elif hasattr(user, 'service_provider_profile'):
             qs = CallLog.objects.filter(
@@ -717,8 +722,10 @@ class CallLogViewSet(viewsets.ModelViewSet):
 
         if is_admin:
             base_qs = CallLog.objects.all()
-            if provider_id:
-                base_qs = base_qs.filter(provider_id=provider_id)
+            if provider_id and str(provider_id).strip().isdigit():
+                base_qs = base_qs.filter(provider_id=int(provider_id))
+            elif provider_id in ['null', 'none', 'unassigned']:
+                base_qs = base_qs.filter(provider__isnull=True)
         elif hasattr(user, 'service_provider_profile'):
             base_qs = CallLog.objects.filter(provider=user.service_provider_profile)
         else:

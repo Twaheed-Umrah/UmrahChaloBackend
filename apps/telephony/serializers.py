@@ -63,6 +63,8 @@ class CallLogSerializer(serializers.ModelSerializer):
     lead_name = serializers.CharField(source='lead.full_name', read_only=True)
     package_name = serializers.CharField(source='package.name', read_only=True)
     pilgrim_phone = serializers.CharField(read_only=True)
+    agent_phone = serializers.CharField(read_only=True)
+    mask_phone = serializers.CharField(read_only=True)
     status_category = serializers.CharField(read_only=True)
     status_label = serializers.CharField(read_only=True)
     formatted_duration = serializers.SerializerMethodField()
@@ -85,9 +87,11 @@ class CallLogSerializer(serializers.ModelSerializer):
             'id',
             'call_sid',
             'call_from',
-            'pilgrim_phone',
-            'caller_name',
             'call_to',
+            'pilgrim_phone',
+            'agent_phone',
+            'mask_phone',
+            'caller_name',
             'direction',
             'destination_numbers',
             'dialed_number',
@@ -119,8 +123,10 @@ class CallLogSerializer(serializers.ModelSerializer):
             'id',
             'call_sid',
             'call_from',
-            'pilgrim_phone',
             'call_to',
+            'pilgrim_phone',
+            'agent_phone',
+            'mask_phone',
             'direction',
             'destination_numbers',
             'dialed_number',
@@ -134,6 +140,36 @@ class CallLogSerializer(serializers.ModelSerializer):
             'formatted_created_at',
             'updated_at',
         ]
+
+    def to_representation(self, instance):
+        """
+        Role-based privacy representation:
+        - Service Providers: Show ONLY the pilgrim's real number (pilgrim_phone).
+          Never show the platform virtual/mask number (080-472-89252).
+        - Admin / Superadmin: Show BOTH agent and pilgrim numbers, plus virtual mask number and recordings.
+        """
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+
+        is_provider = False
+        if request and request.user and request.user.is_authenticated:
+            is_admin = request.user.is_staff or getattr(request.user, 'user_type', None) in ['admin', 'super_admin']
+            if not is_admin and hasattr(request.user, 'service_provider_profile'):
+                is_provider = True
+
+        if is_provider:
+            # Hide virtual mask number & internal telephony routing from provider
+            data.pop('call_to', None)
+            data.pop('call_from', None)
+            data.pop('mask_phone', None)
+            data.pop('agent_phone', None)
+            data.pop('destination_numbers', None)
+            data.pop('dialed_number', None)
+            data.pop('flow_id', None)
+            data.pop('custom_field', None)
+            data.pop('call_sid', None)
+
+        return data
 
 
 class ProviderCallDirectorySerializer(serializers.ModelSerializer):

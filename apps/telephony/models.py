@@ -94,8 +94,40 @@ class CallLog(BaseModel):
 
     @property
     def pilgrim_phone(self):
-        """Original phone number of the pilgrim/caller"""
+        """
+        Guarantees returning the real phone number of the pilgrim/customer.
+        - For incoming calls: pilgrim is call_from
+        - For outbound bridge calls: pilgrim is call_to
+        """
+        if self.direction == 'outbound-api':
+            return self.call_to or ""
         return self.call_from or ""
+
+    @property
+    def agent_phone(self):
+        """
+        Guarantees returning the real phone number of the provider/agent.
+        - For incoming calls: agent is dialed_number or provider business phone
+        - For outbound bridge calls: agent is call_from
+        """
+        if self.direction == 'outbound-api':
+            return self.call_from or (self.provider.business_phone if self.provider else "")
+        if self.dialed_number:
+            return self.dialed_number
+        if self.destination_numbers and len(self.destination_numbers) > 0:
+            return self.destination_numbers[0]
+        if self.provider and (self.provider.business_phone or (self.provider.user and self.provider.user.phone)):
+            return self.provider.business_phone or self.provider.user.phone
+        return ""
+
+    @property
+    def mask_phone(self):
+        """The virtual ExoPhone number (e.g. 080-472-89252) used for privacy masking"""
+        from django.conf import settings
+        default_support = getattr(settings, 'EXOTEL_DEFAULT_SUPPORT_NUMBER', '080-472-89252')
+        if self.direction == 'incoming' and self.call_to:
+            return self.call_to
+        return default_support
 
     @property
     def status_category(self):
