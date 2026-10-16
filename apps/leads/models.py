@@ -34,7 +34,7 @@ class Lead(models.Model):
 
     full_name = models.CharField(max_length=100)
     email = models.EmailField(blank=True)
-    phone = models.CharField(max_length=20)
+    phone = models.CharField(max_length=20, db_index=True)
     preferred_date = models.DateField(null=True, blank=True)
     number_of_people = models.PositiveIntegerField(default=1)
     budget_range = models.CharField(max_length=50, null=True, blank=True)
@@ -54,6 +54,12 @@ class Lead(models.Model):
     class Meta:
         db_table = 'leads'
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'service_provider', '-created_at']),
+            models.Index(fields=['phone', 'service_provider']),
+            models.Index(fields=['service_provider', 'status']),
+            models.Index(fields=['-created_at']),
+        ]
 
     def __str__(self):
         return f"Lead by {self.full_name} - {self.lead_type}"

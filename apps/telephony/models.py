@@ -90,6 +90,8 @@ class CallLog(BaseModel):
             models.Index(fields=['call_from']),
             models.Index(fields=['status']),
             models.Index(fields=['created_at']),
+            models.Index(fields=['provider', '-created_at']),
+            models.Index(fields=['provider', 'status']),
         ]
 
     @property
@@ -244,6 +246,7 @@ class CallSession(BaseModel):
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['pilgrim_phone', 'is_active', 'expires_at']),
+            models.Index(fields=['pilgrim_phone', 'provider', 'is_active', 'expires_at']),
             models.Index(fields=['session_code', 'is_active']),
         ]
 

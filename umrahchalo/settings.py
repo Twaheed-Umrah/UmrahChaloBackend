@@ -113,8 +113,11 @@ DATABASES = {
         "PASSWORD": "Umrahchalo786",
         "HOST": "umrahchalo.c3c8y8w4a16m.eu-north-1.rds.amazonaws.com",
         "PORT": "5432",
+        "CONN_MAX_AGE": 600,  # 10 minutes connection pooling to eliminate remote SSL handshake delays
+        "CONN_HEALTH_CHECKS": True,  # Verifies connection health before reusing
         "OPTIONS": {
             "sslmode": "require",
+            "connect_timeout": 5,
         },
     }
 }

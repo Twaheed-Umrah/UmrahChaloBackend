@@ -2636,10 +2636,11 @@ def get_provider_contact(request, provider_id):
     package_id = request.query_params.get('package_id')
     service_id = request.query_params.get('service_id')
 
-    # Automatically create a Lead for this contact reveal action
+    # Automatically create or reuse existing Lead for this contact reveal action
     from apps.leads.models import Lead, LeadDistribution
     from apps.packages.models import Package
     from apps.services.models import Service
+    from django.db.models import Q
 
     pkg_obj = Package.objects.filter(id=package_id).first() if package_id else None
     srv_obj = Service.objects.filter(id=service_id).first() if service_id else None
@@ -2650,21 +2651,35 @@ def get_provider_contact(request, provider_id):
 
     lead = None
     try:
-        lead = Lead.objects.create(
-            user=request.user,
-            service_provider=provider,
-            package=pkg_obj,
-            service=srv_obj,
-            lead_type='contact_view',
-            status='pending',
-            full_name=pilgrim_name,
-            phone=pilgrim_phone or 'N/A',
-            email=pilgrim_email,
-            special_requirements=f"Pilgrim viewed contact details for {provider.business_name}",
-            source='contact_reveal'
-        )
-        # Ensure lead is distributed to the provider so it shows on their dashboard immediately
-        LeadDistribution.objects.get_or_create(lead=lead, provider=provider, defaults={'status': 'sent'})
+        lead_filter = Q(user=request.user, service_provider=provider)
+        if pkg_obj:
+            lead_filter &= Q(package=pkg_obj)
+        if srv_obj:
+            lead_filter &= Q(service=srv_obj)
+
+        existing_lead = Lead.objects.filter(lead_filter).order_by('-created_at').first()
+        if existing_lead:
+            lead = existing_lead
+            if pilgrim_phone and (not existing_lead.phone or existing_lead.phone == 'N/A'):
+                existing_lead.phone = pilgrim_phone
+                existing_lead.save(update_fields=['phone', 'updated_at'])
+            logger.info(f"Prevented duplicate: Reusing existing Lead #{existing_lead.id} for user {request.user.id} and provider {provider.id}")
+        else:
+            lead = Lead.objects.create(
+                user=request.user,
+                service_provider=provider,
+                package=pkg_obj,
+                service=srv_obj,
+                lead_type='contact_view',
+                status='pending',
+                full_name=pilgrim_name,
+                phone=pilgrim_phone or 'N/A',
+                email=pilgrim_email,
+                special_requirements=f"Pilgrim viewed contact details for {provider.business_name}",
+                source='contact_reveal'
+            )
+            # Ensure lead is distributed to the provider so it shows on their dashboard immediately
+            LeadDistribution.objects.get_or_create(lead=lead, provider=provider, defaults={'status': 'sent'})
     except Exception as e:
         logger.error(f"Error creating lead on contact view: {e}")
 
