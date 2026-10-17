@@ -535,6 +535,67 @@ class NotificationService:
             logger.error(f"Failed to send welcome notification: {e}")
             return type('MockNotification', (), {'id': 0, 'status': 'failed'})
 
+    @staticmethod
+    def send_airport_booking_notification(booking, event_type='created'):
+        """Send notification to admin/superadmin users when an airport attendant booking is received or confirmed"""
+        try:
+            from django.contrib.auth import get_user_model
+            from django.db.models import Q
+            User = get_user_model()
+
+            # Find all super_admin / admin users
+            admins = User.objects.filter(
+                Q(user_type__in=['admin', 'super_admin']) | Q(is_superuser=True)
+            ).distinct()
+
+            provider_name = getattr(booking.provider, 'full_name', '') or getattr(booking.provider, 'email', 'Provider')
+            airport_name = getattr(booking.airport, 'name', 'Airport')
+            flight_info = f"{booking.flight_name} ({booking.flight_number})" if booking.flight_name and booking.flight_number else (booking.flight_number or "N/A")
+            date_time_str = f"{booking.service_date} at {booking.service_time}"
+
+            title = f"✈️ Paid Airport Booking #{booking.id} Confirmed"
+            message = f"Payment Successful! Airport attendant booking #{booking.id} for {airport_name} by {provider_name} is confirmed ({booking.pilgrim_count} pilgrims, Flight: {flight_info}, ₹{booking.amount})."
+            priority = 'high'
+
+            data = {
+                'booking_id': booking.id,
+                'airport_id': booking.airport.id if booking.airport else None,
+                'airport_name': airport_name,
+                'provider_name': provider_name,
+                'pilgrim_count': booking.pilgrim_count,
+                'service_date': str(booking.service_date),
+                'service_time': str(booking.service_time),
+                'flight_name': booking.flight_name,
+                'flight_number': booking.flight_number,
+                'amount': str(booking.amount),
+                'status': booking.status,
+                'event_type': event_type,
+            }
+
+            notifications = []
+            for admin in admins:
+                try:
+                    notif = NotificationService.create_notification(
+                        recipient=admin,
+                        notification_type='airport_booking',
+                        title=title,
+                        message=message,
+                        data=data,
+                        related_object=booking,
+                        priority=priority,
+                        send_immediately=True
+                    )
+                    if notif:
+                        notifications.append(notif)
+                except Exception as ex:
+                    logger.warning(f"Failed to create booking notification for admin {admin.id}: {ex}")
+
+            logger.info(f"Sent {len(notifications)} airport booking notifications for booking #{booking.id} (event: {event_type})")
+            return notifications
+        except Exception as e:
+            logger.error(f"Failed to send airport booking notification: {e}")
+            return []
+
 
 class EmailNotificationService:
     """Service for handling email notifications with improved error handling"""

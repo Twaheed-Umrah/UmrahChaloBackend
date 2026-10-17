@@ -119,6 +119,29 @@ class CallLog(BaseModel):
         return getattr(settings, 'EXOTEL_DEFAULT_SUPPORT_NUMBER', '+919760316409')
 
     @property
+    def has_recording(self):
+        """Returns True if call was recorded or recording is available/processing"""
+        if self.recording_url:
+            return True
+        if self.raw_event_payload and isinstance(self.raw_event_payload, dict):
+            if self.raw_event_payload.get('RecordingAvailableBy') or self.raw_event_payload.get('RecordingUrl'):
+                return True
+        return False
+
+    @property
+    def is_connected(self):
+        """
+        Returns True if the call was successfully answered and connected.
+        Considers explicit 'completed' status, non-zero duration, or presence of recording.
+        """
+        s = (self.status or '').lower()
+        if s in ['completed', 'answered']:
+            return True
+        if self.duration > 0 or self.has_recording:
+            return True
+        return False
+
+    @property
     def agent_connected(self):
         """
         Returns True if the provider agent successfully answered and completed the call.
@@ -126,7 +149,7 @@ class CallLog(BaseModel):
         """
         if not self.provider:
             return False
-        if self.status != 'completed':
+        if not self.is_connected:
             return False
         if self.dialed_number:
             clean_dialed = str(self.dialed_number).replace('+', '').replace('-', '').replace(' ', '').lstrip('0')[-10:]
@@ -142,6 +165,8 @@ class CallLog(BaseModel):
         1. Call had no assigned provider (direct central support call)
         2. Or agent did not answer/connect and support number was dialed/connected
         """
+        if not self.is_connected:
+            return False
         if self.provider is None:
             return True
         if self.dialed_number:
@@ -180,16 +205,20 @@ class CallLog(BaseModel):
 
     @property
     def status_category(self):
-        """Categorize into received, missed, cut, ringing, failed"""
+        """Categorize into received, missed, cut, ringing, other"""
         s = (self.status or '').lower()
-        if s == 'completed':
+        # 1. Answered / Connected
+        if s in ['completed', 'answered'] or self.is_connected:
             return 'received'
-        elif s in ['no-answer', 'busy', 'canceled', 'failed', 'incomplete', 'free', 'timeout']:
-            return 'missed'
+        # 2. Client Hangup / Cut
         elif s == 'client-hangup':
             return 'cut'
+        # 3. Active / Ringing
         elif s in ['initiated', 'ringing', 'in-progress']:
             return 'ringing'
+        # 4. Missed Call (Unanswered, busy, canceled, failed, timeout, or terminal 'free' with 0 duration and no recording)
+        elif s in ['no-answer', 'busy', 'canceled', 'failed', 'incomplete', 'free', 'timeout']:
+            return 'missed'
         return 'other'
 
     @property

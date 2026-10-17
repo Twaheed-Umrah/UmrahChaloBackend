@@ -112,6 +112,30 @@ class AirportAttendantBooking(models.Model):
             models.Index(fields=['attendant', 'service_date', 'service_time', 'status']),
         ]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._initial_status = self.status
+
+    def save(self, *args, **kwargs):
+        is_new = self._state.adding
+        previous_status = getattr(self, '_initial_status', None)
+        became_confirmed = (
+            (not is_new and previous_status != self.Status.CONFIRMED and self.status == self.Status.CONFIRMED)
+            or (is_new and self.status == self.Status.CONFIRMED)
+        )
+        super().save(*args, **kwargs)
+        self._initial_status = self.status
+        if became_confirmed:
+            from django.db import transaction
+            def _send_confirmed():
+                try:
+                    from apps.notifications.services import NotificationService
+                    NotificationService.send_airport_booking_notification(self, event_type='confirmed')
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(f"Error sending airport booking confirmed notification: {e}")
+            transaction.on_commit(_send_confirmed)
+
     @property
     def reservation_is_active(self):
         return (
@@ -121,3 +145,4 @@ class AirportAttendantBooking(models.Model):
 
     def __str__(self):
         return f'{self.airport.name} booking {self.id} ({self.service_date} {self.service_time})'
+

@@ -513,15 +513,6 @@ class ExotelEventWebhookView(APIView):
         dial_whom = data.get('DialWhomNumber') or data.get('DialWhom') or data.get('PhoneNumber')
         custom_field = data.get('CustomField') or data.get('custom_field', '')
 
-        # Determine normalized status
-        normalized_status = None
-        if call_type == 'client-hangup':
-            normalized_status = 'client-hangup'
-        elif dial_status:
-            normalized_status = str(dial_status).lower()
-        elif call_type:
-            normalized_status = str(call_type).lower()
-
         # Parse duration
         duration_sec = 0
         if dial_duration:
@@ -529,6 +520,41 @@ class ExotelEventWebhookView(APIView):
                 duration_sec = int(float(dial_duration))
             except (ValueError, TypeError):
                 duration_sec = 0
+
+        # Check recording indicators (Exotel attaches RecordingAvailableBy/RecordingUrl only when answered)
+        has_recording = bool(recording_url or data.get('RecordingAvailableBy'))
+
+        # Calculate duration from Created and CurrentTime if call was answered (has recording)
+        if not duration_sec and has_recording:
+            from .utils import parse_datetime_flexible
+            created_str = data.get('Created') or data.get('StartTime')
+            current_str = data.get('CurrentTime') or data.get('EndTime')
+            if created_str and current_str:
+                t_start = parse_datetime_flexible(created_str)
+                t_end = parse_datetime_flexible(current_str)
+                if t_start and t_end and t_end > t_start:
+                    duration_sec = int((t_end - t_start).total_seconds())
+
+        # Determine normalized status
+        normalized_status = None
+        raw_status = (dial_status or '').strip().lower()
+
+        if call_type == 'client-hangup' or raw_status == 'client-hangup':
+            normalized_status = 'client-hangup'
+        elif raw_status in ['completed', 'answered']:
+            normalized_status = 'completed'
+        elif raw_status in ['free', 'terminal']:
+            # In Exotel Connect Applet, 'free' is sent when the dialed agent leg terminates.
+            # If recording exists or explicit conversation duration > 0, the call was ANSWERED/CONNECTED!
+            if has_recording or (duration_sec > 0 and dial_duration):
+                normalized_status = 'completed'
+            else:
+                normalized_status = 'no-answer'
+                duration_sec = 0
+        elif raw_status:
+            normalized_status = raw_status
+        elif call_type:
+            normalized_status = str(call_type).lower()
 
         call_log = CallLog.objects.filter(call_sid=call_sid).first()
         if call_log:
@@ -760,9 +786,13 @@ class CallLogViewSet(viewsets.ModelViewSet):
         # Category filter: 'received' | 'missed' | 'cut'
         category = self.request.query_params.get('category')
         if category == 'received':
-            qs = qs.filter(status='completed')
+            qs = qs.filter(Q(status__in=['completed', 'answered']) | Q(duration__gt=0) | Q(recording_url__isnull=False))
         elif category == 'missed':
-            qs = qs.filter(status__in=['no-answer', 'busy', 'failed', 'canceled', 'incomplete', 'free', 'timeout'])
+            qs = qs.filter(
+                status__in=['no-answer', 'busy', 'failed', 'canceled', 'incomplete', 'free', 'timeout'],
+                duration=0,
+                recording_url__isnull=True
+            ).exclude(raw_event_payload__has_key='RecordingAvailableBy')
         elif category == 'cut':
             qs = qs.filter(status='client-hangup')
 

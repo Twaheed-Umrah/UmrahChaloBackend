@@ -745,6 +745,16 @@ def process_payment_captured(payment_data):
             if payment.subscription:
                 payment.subscription.status = 'active'
                 payment.subscription.save()
+
+            # Confirm airport attendant booking if exists
+            if payment.purpose == 'airport_attendant':
+                try:
+                    booking = AirportAttendantBooking.objects.filter(payment=payment).first()
+                    if booking and booking.status != AirportAttendantBooking.Status.CONFIRMED:
+                        booking.status = AirportAttendantBooking.Status.CONFIRMED
+                        booking.save(update_fields=['status', 'updated_at'])
+                except Exception as notif_err:
+                    logger.warning(f"Failed to confirm airport booking on webhook capture: {notif_err}")
     
     except Payment.DoesNotExist:
         logger.warning(f"Payment not found for gateway ID: {gateway_payment_id}")

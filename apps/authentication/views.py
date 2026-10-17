@@ -2169,6 +2169,8 @@ def admin_dashboard_stats(request):
             'verified': ServiceProviderProfile.objects.filter(verification_status='verified').count(),
             'pending': ServiceProviderProfile.objects.filter(verification_status='pending').count(),
             'featured': ServiceProviderProfile.objects.filter(is_featured=True).count(),
+            'new_today': ServiceProviderProfile.objects.filter(created_at__date=today).count(),
+            'new_this_week': ServiceProviderProfile.objects.filter(created_at__date__gte=last_week).count(),
         },
         'pilgrims': {
             'total': User.objects.filter(user_type='pilgrim').count() if hasattr(User, 'user_type') else User.objects.count(),
@@ -2195,7 +2197,45 @@ def admin_dashboard_stats(request):
             ).count(),
         }
     }
-    
+
+    try:
+        from apps.packages.models import Package
+        stats['packages'] = {
+            'total': Package.objects.count(),
+            'pending': Package.objects.filter(verification_status='pending').count(),
+            'today': Package.objects.filter(created_at__date=today).count(),
+            'this_week': Package.objects.filter(created_at__date__gte=last_week).count(),
+        }
+    except Exception:
+        stats['packages'] = {'total': 0, 'pending': 0, 'today': 0, 'this_week': 0}
+
+    try:
+        from apps.services.models import Service
+        stats['services'] = {
+            'total': Service.objects.count(),
+            'today': Service.objects.filter(created_at__date=today).count(),
+            'this_week': Service.objects.filter(created_at__date__gte=last_week).count(),
+        }
+    except Exception:
+        stats['services'] = {'total': 0, 'today': 0, 'this_week': 0}
+
+    try:
+        from apps.airport_attendants.models import AirportAttendantBooking
+        confirmed_bookings = AirportAttendantBooking.objects.filter(status='confirmed')
+        stats['airport_bookings'] = {
+            'total': confirmed_bookings.count(),
+            'confirmed': confirmed_bookings.count(),
+            'awaiting_payment': AirportAttendantBooking.objects.filter(status='awaiting_payment').count(),
+            'cancelled': AirportAttendantBooking.objects.filter(status='cancelled').count(),
+            'today': confirmed_bookings.filter(created_at__date=today).count(),
+            'this_week': confirmed_bookings.filter(created_at__date__gte=last_week).count(),
+            'this_month': confirmed_bookings.filter(created_at__date__gte=last_month).count(),
+        }
+    except Exception as e:
+        stats['airport_bookings'] = {
+            'total': 0, 'confirmed': 0, 'awaiting_payment': 0, 'cancelled': 0, 'today': 0, 'this_week': 0, 'this_month': 0
+        }
+
     return Response(stats, status=status.HTTP_200_OK)
 
 @api_view(['GET'])

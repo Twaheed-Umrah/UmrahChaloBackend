@@ -27,6 +27,7 @@ class Notification(models.Model):
         ('verification_complete', 'Verification Complete'),
         ('welcome', 'Welcome'),
         ('password_reset', 'Password Reset'),
+        ('airport_booking', 'Airport Attendant Booking'),
     ]
     
     STATUS_CHOICES = [
@@ -261,6 +262,11 @@ class NotificationPreference(models.Model):
                 'email': True,  # Password reset emails are always sent
                 'sms': False,
                 'app': False,
+            },
+            'airport_booking': {
+                'email': True,
+                'sms': False,
+                'app': True,
             },
         }
         

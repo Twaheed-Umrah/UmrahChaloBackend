@@ -84,3 +84,28 @@ def parse_custom_field(custom_field: str) -> Dict[str, Any]:
         result['raw'] = val
 
     return result
+
+
+def parse_datetime_flexible(date_str: Optional[str]):
+    """
+    Parses various datetime string formats returned by Exotel webhooks.
+    Supports RFC 2822 (e.g. 'Fri, 16 Oct 2026 17:32:46'), ISO 8601, and standard SQL formats.
+    """
+    if not date_str:
+        return None
+    from datetime import datetime
+    s = str(date_str).strip()
+    formats = [
+        '%a, %d %b %Y %H:%M:%S',
+        '%Y-%m-%d %H:%M:%S',
+        '%Y-%m-%dT%H:%M:%SZ',
+        '%Y-%m-%dT%H:%M:%S',
+        '%d %b %Y, %I:%M %p',
+    ]
+    for fmt in formats:
+        try:
+            return datetime.strptime(s, fmt)
+        except Exception:
+            pass
+    return None
+
