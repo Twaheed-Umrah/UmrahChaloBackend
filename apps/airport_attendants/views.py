@@ -278,6 +278,10 @@ class AttendantDutyListView(generics.ListAPIView):
             ).order_by('service_date', 'service_time')
         elif tab == 'completed':
             qs = qs.filter(duty_status=AirportAttendantBooking.DutyStatus.COMPLETED).order_by('-service_date', '-service_time')
+        elif tab == 'upload':
+            qs = qs.filter(
+                Q(completion_image__isnull=True) | Q(completion_image='')
+            ).order_by('service_date', 'service_time')
         else:  # all
             qs = qs.order_by('-service_date', '-service_time')
 
