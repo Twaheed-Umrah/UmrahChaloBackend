@@ -25,6 +25,14 @@ class Airport(models.Model):
 
 
 class AirportAttendant(models.Model):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='airport_attendant_profile',
+        help_text="Login user account for the attendant",
+    )
     airport = models.ForeignKey(Airport, on_delete=models.PROTECT, related_name='attendants')
     name = models.CharField(max_length=150)
     phone = models.CharField(max_length=20)
@@ -48,6 +56,7 @@ class AirportAttendant(models.Model):
         blank=True,
     )
     is_active = models.BooleanField(default=True)
+    is_on_duty = models.BooleanField(default=True, help_text="Availability flag for shifts")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -72,6 +81,15 @@ class AirportAttendantBooking(models.Model):
         AWAITING_PAYMENT = 'awaiting_payment', 'Awaiting payment'
         CONFIRMED = 'confirmed', 'Confirmed'
         CANCELLED = 'cancelled', 'Cancelled'
+
+    class DutyStatus(models.TextChoices):
+        ASSIGNED = 'assigned', 'Assigned'
+        AT_TERMINAL = 'at_terminal', 'At Terminal'
+        PILGRIMS_MET = 'pilgrims_met', 'Pilgrims Met'
+        IN_PROGRESS = 'in_progress', 'Assistance In Progress'
+        COMPLETED = 'completed', 'Completed'
+        DELAYED = 'delayed', 'Flight Delayed'
+        ISSUE_REPORTED = 'issue_reported', 'Issue Reported'
 
     provider = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -102,6 +120,17 @@ class AirportAttendantBooking(models.Model):
         blank=True,
     )
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.AWAITING_PAYMENT)
+    duty_status = models.CharField(
+        max_length=30,
+        choices=DutyStatus.choices,
+        default=DutyStatus.ASSIGNED,
+    )
+    lead_pilgrim_name = models.CharField(max_length=150, blank=True, default='')
+    lead_pilgrim_phone = models.CharField(max_length=20, blank=True, default='')
+    terminal_gate = models.CharField(max_length=50, blank=True, default='')
+    special_notes = models.TextField(blank=True, default='')
+    attendant_notes = models.TextField(blank=True, default='')
+    completed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -110,6 +139,7 @@ class AirportAttendantBooking(models.Model):
         indexes = [
             models.Index(fields=['airport', 'service_date', 'service_time', 'status']),
             models.Index(fields=['attendant', 'service_date', 'service_time', 'status']),
+            models.Index(fields=['attendant', 'duty_status']),
         ]
 
     def __init__(self, *args, **kwargs):

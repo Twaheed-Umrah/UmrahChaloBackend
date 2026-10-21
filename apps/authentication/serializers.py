@@ -586,17 +586,25 @@ class ServiceProviderListSerializer(serializers.ModelSerializer):
     government_id_document = serializers.FileField(read_only=True)
     gst_certificate = serializers.FileField(read_only=True)
     trade_license_document = serializers.FileField(read_only=True)
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
+    latitude = serializers.DecimalField(source='user.latitude', max_digits=10, decimal_places=8, read_only=True)
+    longitude = serializers.DecimalField(source='user.longitude', max_digits=11, decimal_places=8, read_only=True)
     media = ProviderMediaSerializer(many=True, read_only=True)
     active_plan = serializers.SerializerMethodField()
 
     class Meta:
         model = ServiceProviderProfile
         fields = [
-            'id','user_email','user_full_name','user_username','user_phone','user_type','is_user_verified',
+            'id','user_id','user_email','user_full_name','user_username','user_phone','user_type','is_user_verified',
             'business_name',
             'business_type',
+            'business_address',
             'business_city',
             'business_state',
+            'business_country',
+            'business_pincode',
+            'latitude',
+            'longitude',
             'verification_status',
             'average_rating',
             'business_logo',

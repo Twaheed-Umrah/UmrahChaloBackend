@@ -41,10 +41,40 @@ class Banner(models.Model):
         help_text="Show banner only to providers of specific business type"
     )
     
-    # Location-based targeting (city/state/country)
+    # Location-based targeting (city/state/country/area/pincode/coordinates)
     target_city = models.CharField(max_length=100, blank=True)
     target_state = models.CharField(max_length=100, blank=True)
     target_country = models.CharField(max_length=100, blank=True)
+    target_area = models.CharField(
+        max_length=150, 
+        blank=True, 
+        help_text="Specific locality or sector, e.g. Okhla, Bandra"
+    )
+    target_pincode = models.CharField(
+        max_length=20, 
+        blank=True, 
+        help_text="Specific postal/zip code"
+    )
+    radius_km = models.DecimalField(
+        max_digits=6, 
+        decimal_places=2, 
+        default=25.0, 
+        help_text="Display radius in km around target coordinates"
+    )
+    target_latitude = models.DecimalField(
+        max_digits=10, 
+        decimal_places=8, 
+        null=True, 
+        blank=True,
+        help_text="Target latitude for radius matching"
+    )
+    target_longitude = models.DecimalField(
+        max_digits=11, 
+        decimal_places=8, 
+        null=True, 
+        blank=True,
+        help_text="Target longitude for radius matching"
+    )
     
     # Priority system
     display_priority = models.CharField(
@@ -73,6 +103,8 @@ class Banner(models.Model):
             models.Index(fields=['banner_type', 'is_active', 'display_priority']),
             models.Index(fields=['provider', 'is_active']),
             models.Index(fields=['target_city', 'target_state', 'is_active']),
+            models.Index(fields=['target_area', 'is_active']),
+            models.Index(fields=['target_pincode', 'is_active']),
         ]
 
     def __str__(self):
@@ -83,14 +115,7 @@ class Banner(models.Model):
             except:
                 return f"{self.title} - Provider #{self.provider.id}"
         return f"{self.title} - My Company"
-    def is_currently_active(self):
-        """Check if banner is currently active based on dates"""
-        now = timezone.now()
-        if self.start_date and now < self.start_date:
-            return False
-        if self.end_date and now > self.end_date:
-            return False
-        return self.is_active
+
     def is_currently_active(self):
         """Check if banner is currently active based on dates"""
         now = timezone.now()

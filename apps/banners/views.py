@@ -41,65 +41,167 @@ class BannerViewSet(viewsets.ModelViewSet):
         
         return queryset
     
-    def get_location_based_banners(self, user, banner_type=None, limit=None):
-        """Get banners filtered by provider location and business type"""
+import math
+
+def calculate_haversine(lat1, lon1, lat2, lon2):
+    """Calculate distance in kilometers between two GPS points"""
+    try:
+        lat1, lon1, lat2, lon2 = float(lat1), float(lon1), float(lat2), float(lon2)
+        R = 6371.0  # Earth's radius in km
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = (math.sin(dlat / 2)**2 +
+             math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
+             math.sin(dlon / 2)**2)
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        return R * c
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+
+    def get_location_based_banners(self, request_or_user=None, banner_type=None, limit=None):
+        """Get banners filtered by client location (area, pincode, km radius, city) and provider context"""
         queryset = self.get_queryset()
         
         if banner_type:
             queryset = queryset.filter(banner_type=banner_type)
         
-        # Get banners for current user context
-        if user and user.is_authenticated:
-            banners = []
-            
-            for banner in queryset:
-                
-                # For providers, check business type and location
-                if user.user_type == 'provider':
-                    try:
-                        profile = user.service_provider_profile
-                        
-                        # Check business type match
-                        if not banner.matches_provider_business(profile.business_type):
-                            continue
-                        
-                        # Check location match
-                        if not banner.matches_location(profile):
-                            continue
-                        
-                        banners.append(banner)
-                    except:
-                        # Provider doesn't have profile, skip
-                        continue
-                else:
-                    # For pilgrims, just add if user type matches
-                    banners.append(banner)
-            
-            # Sort by priority weight and display order
-            banners.sort(key=lambda x: (-x.priority_weight, x.display_order))
-            
-            if limit:
-                banners = banners[:limit]
-            
-            return banners
-        
-        # For anonymous users, return banners with no user type restriction
-        # or only those targeting 'anonymous'
-        banners = []
+        request = None
+        user = None
+        if hasattr(request_or_user, 'query_params'):
+            request = request_or_user
+            user = request.user if (hasattr(request, 'user') and request.user.is_authenticated) else None
+        elif hasattr(request_or_user, 'is_authenticated'):
+            user = request_or_user
+            request = getattr(self, 'request', None)
+        else:
+            request = getattr(self, 'request', None)
+            user = request.user if (request and hasattr(request, 'user') and request.user.is_authenticated) else None
+
+        client_lat = None
+        client_lng = None
+        client_city = ''
+        client_state = ''
+        client_country = ''
+        client_area = ''
+        client_pincode = ''
+
+        if request:
+            client_lat = request.query_params.get('latitude') or request.query_params.get('lat')
+            client_lng = request.query_params.get('longitude') or request.query_params.get('lng')
+            client_city = (request.query_params.get('city') or '').strip().lower()
+            client_state = (request.query_params.get('state') or '').strip().lower()
+            client_country = (request.query_params.get('country') or '').strip().lower()
+            client_area = (request.query_params.get('area') or request.query_params.get('sector') or '').strip().lower()
+            client_pincode = (request.query_params.get('pincode') or request.query_params.get('pin') or '').strip().lower()
+
+        # If user is a provider browsing, fallback to their profile location
+        provider_profile = None
+        if user and getattr(user, 'user_type', None) == 'provider':
+            try:
+                provider_profile = user.service_provider_profile
+                if not client_city and provider_profile.business_city:
+                    client_city = provider_profile.business_city.lower()
+                if not client_state and provider_profile.business_state:
+                    client_state = provider_profile.business_state.lower()
+                if not client_pincode and provider_profile.business_pincode:
+                    client_pincode = provider_profile.business_pincode.lower()
+            except:
+                pass
+
+        matched_banners = []
+
         for banner in queryset:
-            banners.append(banner)
-        
-        banners.sort(key=lambda x: (-x.priority_weight, x.display_order))
-        
+            # 1. Provider business type check (if browsing user is provider)
+            if provider_profile and banner.provider_business_type:
+                if not banner.matches_provider_business(provider_profile.business_type):
+                    continue
+
+            # 2. Check if banner has NO location targeting at all -> Universal fallback
+            has_targeting = bool(
+                banner.target_city or 
+                banner.target_state or 
+                banner.target_country or 
+                banner.target_area or 
+                banner.target_pincode or 
+                (banner.target_latitude is not None and banner.target_longitude is not None)
+            )
+
+            if not has_targeting:
+                # Universal banner: always eligible
+                score = 1 + (banner.priority_weight or 1)
+                matched_banners.append((score, banner))
+                continue
+
+            # 3. Banner has targeting -> must match area / radius / pincode / city
+            match_score = 0
+            is_matched = False
+
+            # A. GPS Coordinates & KM Radius Check (Highest precision)
+            if client_lat and client_lng and banner.target_latitude is not None and banner.target_longitude is not None:
+                dist = calculate_haversine(client_lat, client_lng, banner.target_latitude, banner.target_longitude)
+                radius = float(banner.radius_km or 25.0)
+                if dist is not None and dist <= radius:
+                    is_matched = True
+                    # Closer distance gets higher score bonus
+                    match_score = max(match_score, 100 - min(dist, 50) + (banner.priority_weight * 5))
+                elif dist is not None and dist > radius:
+                    # Explicitly outside radius -> reject
+                    continue
+
+            # B. Pincode Match
+            if client_pincode and banner.target_pincode:
+                if client_pincode == banner.target_pincode.strip().lower():
+                    is_matched = True
+                    match_score = max(match_score, 80 + (banner.priority_weight * 5))
+                elif not is_matched:
+                    pass
+
+            # C. Area / Sector Match
+            if client_area and banner.target_area:
+                b_area = banner.target_area.strip().lower()
+                if client_area in b_area or b_area in client_area:
+                    is_matched = True
+                    match_score = max(match_score, 70 + (banner.priority_weight * 5))
+                elif not is_matched:
+                    pass
+
+            # D. City Match
+            if client_city and banner.target_city:
+                b_city = banner.target_city.strip().lower()
+                if client_city in b_city or b_city in client_city:
+                    if not banner.target_area and banner.target_latitude is None and not banner.target_pincode:
+                        is_matched = True
+                        match_score = max(match_score, 40 + (banner.priority_weight * 5))
+                else:
+                    # Targeted to a different city -> reject
+                    continue
+
+            # E. State Match
+            if client_state and banner.target_state and not banner.target_city and not banner.target_area:
+                b_state = banner.target_state.strip().lower()
+                if client_state in b_state or b_state in client_state:
+                    is_matched = True
+                    match_score = max(match_score, 20 + (banner.priority_weight * 5))
+
+            if is_matched:
+                matched_banners.append((match_score, banner))
+
+        # Sort: Highest match score first, then priority_weight, then display_order, then newest
+        matched_banners.sort(key=lambda item: (
+            -item[0],
+            -(item[1].priority_weight or 1),
+            item[1].display_order,
+            -item[1].created_at.timestamp() if item[1].created_at else 0
+        ))
+
+        result = [item[1] for item in matched_banners]
         if limit:
-            banners = banners[:limit]
-        
-        return banners
+            result = result[:limit]
+        return result
     
     def list(self, request, *args, **kwargs):
-        """Get all banners for current user context"""
-        user = request.user if request.user.is_authenticated else None
-        banners = self.get_location_based_banners(user)
+        """Get all banners for current user/client location context"""
+        banners = self.get_location_based_banners(request)
         
         page = self.paginate_queryset(banners)
         if page is not None:
@@ -111,17 +213,15 @@ class BannerViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def main_screen(self, request):
-        """Get main screen banners based on user context"""
-        user = request.user if request.user.is_authenticated else None
-        banners = self.get_location_based_banners(user, 'main_screen', limit=5)
+        """Get main screen banners based on area, pincode, radius, and city context"""
+        banners = self.get_location_based_banners(request, banner_type='main_screen', limit=6)
         serializer = self.get_serializer(banners, many=True)
         return Response(serializer.data)
     
     @action(detail=False, methods=['get'])
     def offers(self, request):
-        """Get offer banners based on user context"""
-        user = request.user if request.user.is_authenticated else None
-        banners = self.get_location_based_banners(user, 'offer', limit=3)
+        """Get offer banners based on area, pincode, radius, and city context"""
+        banners = self.get_location_based_banners(request, banner_type='offer', limit=4)
         serializer = self.get_serializer(banners, many=True)
         return Response(serializer.data)
     
@@ -164,33 +264,8 @@ class BannerViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def by_location(self, request):
         """Get banners for specific location"""
-        city = request.query_params.get('city')
-        state = request.query_params.get('state')
-        country = request.query_params.get('country')
-        
-        if not any([city, state, country]):
-            return Response(
-                {'error': 'Please provide at least one location parameter (city, state, or country)'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        queryset = self.get_queryset()
-        
-        # Build location filters
-        filters = Q()
-        if city:
-            filters |= Q(target_city__iexact=city)
-        if state:
-            filters |= Q(target_state__iexact=state)
-        if country:
-            filters |= Q(target_country__iexact=country)
-        
-        # Also include banners with no location targeting
-        filters |= Q(target_city='', target_state='', target_country='')
-        
-        banners = queryset.filter(filters).order_by('-priority_weight', 'display_order')
-        serializer = self.get_serializer(banners[:20], many=True)
-        
+        banners = self.get_location_based_banners(request, limit=20)
+        serializer = self.get_serializer(banners, many=True)
         return Response(serializer.data)
 
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
@@ -288,8 +363,8 @@ class HomeView(generics.GenericAPIView):
         banner_viewset = BannerViewSet()
         banner_viewset.request = request
         
-        main_banners = banner_viewset.get_location_based_banners(user, 'main_screen', 5)
-        offer_banners = banner_viewset.get_location_based_banners(user, 'offer', 3)
+        main_banners = banner_viewset.get_location_based_banners(request, 'main_screen', 5)
+        offer_banners = banner_viewset.get_location_based_banners(request, 'offer', 3)
         
         # Get destinations
         featured_destinations = PopularDestination.objects.filter(

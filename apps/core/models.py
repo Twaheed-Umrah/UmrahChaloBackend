@@ -115,6 +115,7 @@ class UserRole(models.TextChoices):
     PROVIDER = 'provider', 'Service Provider'
     ADMIN = 'admin', 'Admin'
     SUPER_ADMIN = 'super_admin', 'Super Admin'
+    AIRPORT_ATTENDANT = 'airport_attendant', 'Airport Attendant'
 
 class Country(BaseModel):
     """

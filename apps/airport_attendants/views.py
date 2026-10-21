@@ -12,8 +12,10 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import IsAdminOrSuperAdmin, IsServiceProvider
+from apps.core.permissions import IsAdminOrSuperAdmin, IsServiceProvider, IsAirportAttendant
 from apps.payments.models import Payment, PaymentTransaction
+from rest_framework import permissions
+from rest_framework_simplejwt.tokens import RefreshToken
 from .models import Airport, AirportAttendant, AirportAttendantBooking
 from .serializers import (
     AirportAttendantBookingCreateSerializer,
@@ -21,6 +23,9 @@ from .serializers import (
     AdminAirportAttendantBookingSerializer,
     AirportAttendantSerializer,
     AirportSerializer,
+    AttendantPortalProfileSerializer,
+    AttendantDutySerializer,
+    AttendantDutyStatusUpdateSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -194,3 +199,193 @@ class AdminBookingDetailView(generics.RetrieveAPIView):
         'airport', 'attendant', 'provider', 'provider__service_provider_profile',
         'payment', 'payment__payment_method',
     )
+
+
+# =========================================================================
+# ATTENDANT ON-GROUND PORTAL VIEWS
+# =========================================================================
+
+def get_attendant_for_request(request):
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated:
+        return None
+    attendant = getattr(user, 'airport_attendant_profile', None)
+    if not attendant and user.phone:
+        attendant = AirportAttendant.objects.filter(phone=user.phone).first()
+        if attendant and not attendant.user:
+            attendant.user = user
+            attendant.save(update_fields=['user'])
+    if not attendant and user.email:
+        attendant = AirportAttendant.objects.filter(email=user.email).first()
+        if attendant and not attendant.user:
+            attendant.user = user
+            attendant.save(update_fields=['user'])
+    return attendant
+
+
+class AttendantPortalProfileView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get(self, request):
+        attendant = get_attendant_for_request(request)
+        if not attendant:
+            return Response(
+                {'detail': 'No airport attendant profile associated with this account.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        serializer = AttendantPortalProfileSerializer(attendant, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def patch(self, request):
+        attendant = get_attendant_for_request(request)
+        if not attendant:
+            return Response(
+                {'detail': 'No airport attendant profile associated with this account.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        serializer = AttendantPortalProfileSerializer(
+            attendant, data=request.data, partial=True, context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class AttendantDutyListView(generics.ListAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = AttendantDutySerializer
+
+    def get_queryset(self):
+        attendant = get_attendant_for_request(self.request)
+        if not attendant:
+            return AirportAttendantBooking.objects.none()
+
+        tab = self.request.query_params.get('tab', 'today')
+        today = timezone.localdate()
+        qs = AirportAttendantBooking.objects.filter(
+            attendant=attendant,
+            status=AirportAttendantBooking.Status.CONFIRMED,
+        ).select_related(
+            'airport', 'provider', 'provider__service_provider_profile'
+        )
+
+        if tab == 'today':
+            qs = qs.filter(service_date=today).order_by('service_time')
+        elif tab == 'upcoming':
+            qs = qs.filter(service_date__gte=today).exclude(
+                duty_status=AirportAttendantBooking.DutyStatus.COMPLETED
+            ).order_by('service_date', 'service_time')
+        elif tab == 'completed':
+            qs = qs.filter(duty_status=AirportAttendantBooking.DutyStatus.COMPLETED).order_by('-service_date', '-service_time')
+        else:  # all
+            qs = qs.order_by('-service_date', '-service_time')
+
+        return qs
+
+
+class AttendantDutyDetailView(generics.RetrieveAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = AttendantDutySerializer
+
+    def get_object(self):
+        attendant = get_attendant_for_request(self.request)
+        if not attendant:
+            raise ValidationError({'detail': 'No airport attendant profile found.'})
+        return get_object_or_404(
+            AirportAttendantBooking.objects.select_related(
+                'airport', 'provider', 'provider__service_provider_profile'
+            ),
+            pk=self.kwargs['pk'],
+            attendant=attendant,
+        )
+
+
+class AttendantDutyStatusUpdateView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, pk):
+        attendant = get_attendant_for_request(request)
+        if not attendant:
+            return Response({'detail': 'No airport attendant profile found.'}, status=status.HTTP_404_NOT_FOUND)
+        booking = get_object_or_404(AirportAttendantBooking, pk=pk, attendant=attendant)
+        serializer = AttendantDutyStatusUpdateSerializer(booking, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        updated = serializer.save()
+        return Response(
+            AttendantDutySerializer(updated, context={'request': request}).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class AttendantLoginView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        phone = request.data.get('phone', '').strip()
+        password = request.data.get('password', '').strip()
+
+        if not phone:
+            return Response({'error': 'Phone number is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check if attendant exists
+        attendant = AirportAttendant.objects.filter(phone=phone).first()
+        if not attendant:
+            return Response(
+                {'error': 'No airport attendant registered with this phone number.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not attendant.is_active:
+            return Response(
+                {'error': 'This attendant account is inactive. Please contact Administrator.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Find or create linked user
+        user = attendant.user
+        if not user:
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            user = User.objects.filter(phone=phone).first()
+            if not user:
+                username = f"attendant_{phone}_{attendant.id}"
+                user = User.objects.create(
+                    username=username,
+                    phone=phone,
+                    email=attendant.email or f"{username}@umrahchalo.internal",
+                    full_name=attendant.name,
+                    user_type='airport_attendant',
+                    is_active=True,
+                )
+                if password:
+                    user.set_password(password)
+                else:
+                    user.set_unusable_password()
+                user.save()
+            attendant.user = user
+            attendant.save(update_fields=['user'])
+
+        # Verify password if user has password and password was provided
+        if user.has_usable_password() and password:
+            if not user.check_password(password):
+                return Response({'error': 'Invalid credentials.'}, status=status.HTTP_400_BAD_REQUEST)
+        elif password and not user.has_usable_password():
+            user.set_password(password)
+            user.save(update_fields=['password'])
+
+        refresh = RefreshToken.for_user(user)
+        return Response({
+            'message': 'Login successful',
+            'access_token': str(refresh.access_token),
+            'refresh_token': str(refresh),
+            'user': {
+                'id': user.id,
+                'full_name': user.full_name or attendant.name,
+                'phone': user.phone,
+                'email': user.email,
+                'user_type': 'airport_attendant',
+            },
+            'attendant_profile': AttendantPortalProfileSerializer(attendant, context={'request': request}).data,
+        }, status=status.HTTP_200_OK)
+

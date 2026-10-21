@@ -251,4 +251,21 @@ class IsProviderOrReadOnly(permissions.BasePermission):
             return obj.user == request.user
         if hasattr(obj, 'provider'):
             return obj.provider.user == request.user
-        return False
+        return False
+
+
+class IsAirportAttendant(permissions.BasePermission):
+    """
+    Custom permission to allow airport attendants.
+    """
+    def has_permission(self, request, view):
+        return bool(
+            request.user and
+            request.user.is_authenticated and
+            (
+                getattr(request.user, 'user_type', None) == UserRole.AIRPORT_ATTENDANT or
+                hasattr(request.user, 'airport_attendant_profile') or
+                getattr(request.user, 'user_type', None) in [UserRole.ADMIN, UserRole.SUPER_ADMIN, 'admin', 'super_admin']
+            )
+        )
+

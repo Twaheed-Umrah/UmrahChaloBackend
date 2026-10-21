@@ -24,6 +24,7 @@ class User(AbstractUser):
         (UserRole.PILGRIM, UserRole.PILGRIM.label),
         (UserRole.PROVIDER, UserRole.PROVIDER.label),
         (UserRole.SUPER_ADMIN, UserRole.SUPER_ADMIN.label),
+        (UserRole.AIRPORT_ATTENDANT, UserRole.AIRPORT_ATTENDANT.label),
     ]
     
     full_name = models.CharField(max_length=255, blank=True, null=True)

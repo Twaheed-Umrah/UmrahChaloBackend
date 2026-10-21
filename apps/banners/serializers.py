@@ -14,7 +14,9 @@ class BannerSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'description', 'image_url', 
             'banner_type', 'provider_info', 'provider_business_type',
-            'target_city', 'target_state', 'target_country','image',
+            'target_city', 'target_state', 'target_country',
+            'target_area', 'target_pincode', 'radius_km',
+            'target_latitude', 'target_longitude', 'image',
             'relevance_score', 'external_url', 'display_priority', 
             'priority_weight', 'display_order', 'start_date', 'end_date'
         ]
