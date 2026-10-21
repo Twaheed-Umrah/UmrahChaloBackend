@@ -53,6 +53,13 @@ class AirportAttendantBookingAdminForm(forms.ModelForm):
 
 
 class AirportAttendantAdminForm(forms.ModelForm):
+    password = forms.CharField(
+        label="Login password",
+        required=False,
+        widget=forms.PasswordInput(render_value=False),
+        help_text="Set or change the attendant's login password (minimum 6 characters)."
+    )
+
     class Meta:
         model = AirportAttendant
         fields = '__all__'
@@ -104,14 +111,17 @@ class AirportAttendantAdmin(admin.ModelAdmin):
     fieldsets = (
         ('Attendant profile', {
             'fields': (
+                'user',
                 'airport',
                 'name',
                 'phone',
                 'alternate_phone',
                 'email',
+                'password',
                 'profile_image',
                 'profile_image_preview',
                 'is_active',
+                'is_on_duty',
             ),
         }),
         ('Private KYC documents', {
@@ -123,6 +133,40 @@ class AirportAttendantAdmin(admin.ModelAdmin):
             'fields': ('created_at', 'updated_at'),
         }),
     )
+
+    def save_model(self, request, obj, form, change):
+        password = form.cleaned_data.get('password')
+        super().save_model(request, obj, form, change)
+
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        user = obj.user
+        if not user and obj.phone:
+            user = User.objects.filter(phone=obj.phone).first()
+        if not user and obj.email:
+            user = User.objects.filter(email=obj.email).first()
+
+        if not user:
+            username = f"attendant_{obj.phone}_{obj.id}"
+            user = User.objects.create(
+                username=username,
+                phone=obj.phone,
+                email=obj.email or f"{username}@umrahchalo.internal",
+                full_name=obj.name,
+                user_type='airport_attendant',
+                is_active=obj.is_active,
+            )
+
+        if password:
+            user.set_password(password)
+            user.save()
+        elif not user.has_usable_password():
+            user.set_unusable_password()
+            user.save()
+
+        if obj.user != user:
+            obj.user = user
+            obj.save(update_fields=['user'])
 
     @admin.display(description='Profile image')
     def profile_image_preview(self, attendant):
