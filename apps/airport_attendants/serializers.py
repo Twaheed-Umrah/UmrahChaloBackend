@@ -19,12 +19,14 @@ class AirportAttendantSerializer(serializers.ModelSerializer):
     aadhaar_document_exists = serializers.SerializerMethodField()
     profile_image_url = serializers.SerializerMethodField()
 
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+
     class Meta:
         model = AirportAttendant
         fields = [
             'id', 'user', 'airport', 'airport_name', 'name', 'phone', 'alternate_phone', 'email',
-            'profile_image', 'profile_image_url', 'pan_document', 'aadhaar_document', 'pan_document_exists',
-            'aadhaar_document_exists', 'is_active', 'is_on_duty',
+            'password', 'profile_image', 'profile_image_url', 'pan_document', 'aadhaar_document',
+            'pan_document_exists', 'aadhaar_document_exists', 'is_active', 'is_on_duty',
         ]
         extra_kwargs = {
             'profile_image': {'required': False},
@@ -72,6 +74,76 @@ class AirportAttendantSerializer(serializers.ModelSerializer):
         if document.size > 5 * 1024 * 1024:
             raise serializers.ValidationError('KYC documents must be 5 MB or smaller.')
         return document
+
+    def create(self, validated_data):
+        password = validated_data.pop('password', None)
+        attendant = super().create(validated_data)
+
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        user = attendant.user
+        if not user and attendant.phone:
+            user = User.objects.filter(phone=attendant.phone).first()
+        if not user and attendant.email:
+            user = User.objects.filter(email=attendant.email).first()
+
+        if not user:
+            username = f"attendant_{attendant.phone}_{attendant.id}"
+            user = User.objects.create(
+                username=username,
+                phone=attendant.phone,
+                email=attendant.email or f"{username}@umrahchalo.internal",
+                full_name=attendant.name,
+                user_type='airport_attendant',
+                is_active=attendant.is_active,
+            )
+
+        if password:
+            user.set_password(password)
+            user.save()
+        elif not user.has_usable_password():
+            user.set_unusable_password()
+            user.save()
+
+        if attendant.user != user:
+            attendant.user = user
+            attendant.save(update_fields=['user'])
+
+        return attendant
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop('password', None)
+        attendant = super().update(instance, validated_data)
+
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        user = attendant.user
+        if not user and attendant.phone:
+            user = User.objects.filter(phone=attendant.phone).first()
+        if not user:
+            username = f"attendant_{attendant.phone}_{attendant.id}"
+            user = User.objects.create(
+                username=username,
+                phone=attendant.phone,
+                email=attendant.email or f"{username}@umrahchalo.internal",
+                full_name=attendant.name,
+                user_type='airport_attendant',
+                is_active=attendant.is_active,
+            )
+            attendant.user = user
+            attendant.save(update_fields=['user'])
+
+        if user:
+            user.full_name = attendant.name
+            user.phone = attendant.phone
+            user.is_active = attendant.is_active
+            if attendant.email:
+                user.email = attendant.email
+            if password:
+                user.set_password(password)
+            user.save()
+
+        return attendant
 
 
 class AirportAttendantBookingCreateSerializer(serializers.ModelSerializer):
