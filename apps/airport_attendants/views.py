@@ -303,6 +303,7 @@ class AttendantDutyDetailView(generics.RetrieveAPIView):
 
 class AttendantDutyStatusUpdateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def patch(self, request, pk):
         attendant = get_attendant_for_request(request)

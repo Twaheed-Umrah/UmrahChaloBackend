@@ -115,6 +115,7 @@ class AirportAttendantBookingSerializer(serializers.ModelSerializer):
     attendant_phone = serializers.SerializerMethodField()
     attendant_alternate_phone = serializers.SerializerMethodField()
     attendant_profile_image_url = serializers.SerializerMethodField()
+    completion_image_url = serializers.SerializerMethodField()
     payment_status = serializers.CharField(source='payment.status', read_only=True, default=None)
     provider_name = serializers.CharField(source='provider.full_name', read_only=True)
     provider_phone = serializers.CharField(source='provider.phone', read_only=True)
@@ -128,9 +129,21 @@ class AirportAttendantBookingSerializer(serializers.ModelSerializer):
             'flight_number', 'pilgrim_count', 'amount', 'status', 'duty_status',
             'lead_pilgrim_name', 'lead_pilgrim_phone', 'terminal_gate',
             'special_notes', 'attendant_notes', 'completed_at',
+            'completion_image', 'completion_image_url',
             'payment_status', 'attendant_name', 'attendant_phone',
             'attendant_alternate_phone', 'created_at', 'attendant_profile_image_url',
         ]
+        extra_kwargs = {
+            'completion_image': {'read_only': True},
+        }
+
+    def get_completion_image_url(self, obj):
+        if not obj.completion_image:
+            return None
+        request = self.context.get('request')
+        image_url = obj.completion_image.url
+        return request.build_absolute_uri(image_url) if request else image_url
+
 
     def _attendant_after_payment(self, obj):
         return (
@@ -284,6 +297,7 @@ class AttendantDutySerializer(serializers.ModelSerializer):
     airport_name = serializers.CharField(source='airport.name', read_only=True)
     airport_code = serializers.CharField(source='airport.code', read_only=True)
     agent_details = serializers.SerializerMethodField()
+    completion_image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = AirportAttendantBooking
@@ -291,9 +305,16 @@ class AttendantDutySerializer(serializers.ModelSerializer):
             'id', 'service_date', 'service_time', 'flight_name', 'flight_number',
             'pilgrim_count', 'status', 'duty_status', 'lead_pilgrim_name',
             'lead_pilgrim_phone', 'terminal_gate', 'special_notes',
-            'attendant_notes', 'completed_at', 'created_at',
+            'attendant_notes', 'completion_image_url', 'completed_at', 'created_at',
             'airport', 'airport_name', 'airport_code', 'agent_details',
         ]
+
+    def get_completion_image_url(self, obj):
+        if not obj.completion_image:
+            return None
+        request = self.context.get('request')
+        image_url = obj.completion_image.url
+        return request.build_absolute_uri(image_url) if request else image_url
 
     def get_agent_details(self, obj):
         provider = obj.provider
@@ -320,9 +341,11 @@ class AttendantDutySerializer(serializers.ModelSerializer):
 
 
 class AttendantDutyStatusUpdateSerializer(serializers.ModelSerializer):
+    completion_image = serializers.ImageField(required=False, allow_null=True)
+
     class Meta:
         model = AirportAttendantBooking
-        fields = ['duty_status', 'terminal_gate', 'attendant_notes']
+        fields = ['duty_status', 'terminal_gate', 'attendant_notes', 'completion_image']
 
     def update(self, instance, validated_data):
         from django.utils import timezone
@@ -332,9 +355,12 @@ class AttendantDutyStatusUpdateSerializer(serializers.ModelSerializer):
             instance.terminal_gate = validated_data['terminal_gate']
         if 'attendant_notes' in validated_data:
             instance.attendant_notes = validated_data['attendant_notes']
+        if 'completion_image' in validated_data:
+            instance.completion_image = validated_data['completion_image']
 
         if new_status == AirportAttendantBooking.DutyStatus.COMPLETED and not instance.completed_at:
             instance.completed_at = timezone.now()
         instance.save()
         return instance
+
 

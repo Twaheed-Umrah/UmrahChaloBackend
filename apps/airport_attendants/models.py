@@ -130,6 +130,13 @@ class AirportAttendantBooking(models.Model):
     terminal_gate = models.CharField(max_length=50, blank=True, default='')
     special_notes = models.TextField(blank=True, default='')
     attendant_notes = models.TextField(blank=True, default='')
+    completion_image = models.ImageField(
+        upload_to='airport_attendants/completion_proofs/',
+        validators=[FileExtensionValidator(['jpg', 'jpeg', 'png', 'webp'])],
+        blank=True,
+        null=True,
+        help_text="Photo of attendant with client / pilgrims upon duty completion",
+    )
     completed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
