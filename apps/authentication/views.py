@@ -72,8 +72,35 @@ class RequestOTPView(APIView):
             # Existence checks
             existing_user = (
                 User.objects.filter(email=identifier).first() if email
-                else User.objects.filter(phone=identifier).first()
+                else (
+                    User.objects.filter(phone=identifier).first()
+                    or (User.objects.filter(phone__endswith=identifier[-10:]).first() if len(identifier) >= 10 else None)
+                )
             )
+            if not existing_user and purpose == 'login':
+                from apps.airport_attendants.models import AirportAttendant
+                attendant = (
+                    AirportAttendant.objects.filter(email=identifier, is_active=True).first() if email
+                    else (
+                        AirportAttendant.objects.filter(phone=identifier, is_active=True).first()
+                        or (AirportAttendant.objects.filter(phone__endswith=identifier[-10:], is_active=True).first() if len(identifier) >= 10 else None)
+                    )
+                )
+                if attendant:
+                    if not attendant.user:
+                        username = f"attendant_{attendant.phone}_{attendant.id}"
+                        user = User.objects.create(
+                            username=username,
+                            phone=attendant.phone,
+                            email=attendant.email or f"{username}@umrahchalo.internal",
+                            full_name=attendant.name,
+                            user_type='airport_attendant',
+                            is_active=True,
+                        )
+                        attendant.user = user
+                        attendant.save(update_fields=['user'])
+                    existing_user = attendant.user
+
             user_exists = existing_user is not None
             is_incomplete_provider = (
                 not email
@@ -185,7 +212,23 @@ class VerifyOTPView(APIView):
             # Login purpose: issue JWT immediately
             if purpose in ('login', 'pilgrim_auth'):
                 try:
-                    user = User.objects.get(email=identifier) if "@" in identifier else User.objects.get(phone=identifier)
+                    user = User.objects.filter(email=identifier).first() if "@" in identifier else (
+                        User.objects.filter(phone=identifier).first()
+                        or (User.objects.filter(phone__endswith=identifier[-10:]).first() if len(identifier) >= 10 else None)
+                    )
+                    if not user:
+                        from apps.airport_attendants.models import AirportAttendant
+                        attendant = (
+                            AirportAttendant.objects.filter(email=identifier, is_active=True).first() if "@" in identifier
+                            else (
+                                AirportAttendant.objects.filter(phone=identifier, is_active=True).first()
+                                or (AirportAttendant.objects.filter(phone__endswith=identifier[-10:], is_active=True).first() if len(identifier) >= 10 else None)
+                            )
+                        )
+                        if attendant and attendant.user:
+                            user = attendant.user
+                    if not user:
+                        raise User.DoesNotExist
                     if purpose == 'pilgrim_auth' and user.user_type != 'pilgrim':
                         return Response(
                             {"error": "This number is registered for an agent account. Please select Agent login."},

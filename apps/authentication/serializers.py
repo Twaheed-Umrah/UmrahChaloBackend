@@ -202,15 +202,52 @@ class UserLoginSerializer(serializers.Serializer):
         if not password or (not email and not phone):
             raise serializers.ValidationError("Must include either email or phone number and password.")
 
-        try:
-            user = User.objects.get(email=email) if email else User.objects.get(phone=phone)
-        except User.DoesNotExist:
-            raise serializers.ValidationError("Invalid credentials.")
+        user = None
+        if email:
+            user = User.objects.filter(email=email).first()
+        elif phone:
+            user = User.objects.filter(phone=phone).first()
+            if not user and len(phone) >= 10:
+                user = User.objects.filter(phone__endswith=phone[-10:]).first()
+
+        if not user:
+            # Check if this belongs to an active Airport Attendant
+            from apps.airport_attendants.models import AirportAttendant
+            attendant = None
+            if email:
+                attendant = AirportAttendant.objects.filter(email=email, is_active=True).first()
+            elif phone:
+                attendant = AirportAttendant.objects.filter(phone=phone, is_active=True).first()
+                if not attendant and len(phone) >= 10:
+                    attendant = AirportAttendant.objects.filter(phone__endswith=phone[-10:], is_active=True).first()
+
+            if attendant:
+                if attendant.user:
+                    user = attendant.user
+                else:
+                    username = f"attendant_{attendant.phone}_{attendant.id}"
+                    user = User.objects.create(
+                        username=username,
+                        phone=attendant.phone,
+                        email=attendant.email or f"{username}@umrahchalo.internal",
+                        full_name=attendant.name,
+                        user_type='airport_attendant',
+                        is_active=True,
+                    )
+                    user.set_password(password)
+                    user.save()
+                    attendant.user = user
+                    attendant.save(update_fields=['user'])
+            else:
+                raise serializers.ValidationError("Invalid credentials.")
 
         if user.user_type == 'pilgrim':
             raise serializers.ValidationError("Pilgrim accounts must log in using mobile OTP.")
 
-        if not user.check_password(password):
+        if not user.has_usable_password() and user.user_type == 'airport_attendant':
+            user.set_password(password)
+            user.save(update_fields=['password'])
+        elif not user.check_password(password):
             raise serializers.ValidationError("Invalid credentials.")
 
         attrs['user'] = user
