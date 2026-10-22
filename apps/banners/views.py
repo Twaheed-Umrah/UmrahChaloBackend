@@ -1,3 +1,4 @@
+import math
 from rest_framework import viewsets, generics, status, filters
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
 from rest_framework.response import Response
@@ -7,7 +8,7 @@ from django.db.models import Q
 from django_filters.rest_framework import DjangoFilterBackend
 from django.contrib.auth import get_user_model
 from .permissions import PublicReadAdminWrite
-from .models import Banner, PopularDestination
+from .models import Banner, PopularDestination, BannerType
 from .serializers import (
     BannerSerializer, 
     PopularDestinationSerializer,
@@ -15,6 +16,21 @@ from .serializers import (
 )
 
 User = get_user_model()
+
+def calculate_haversine(lat1, lon1, lat2, lon2):
+    """Calculate distance in kilometers between two GPS points"""
+    try:
+        lat1, lon1, lat2, lon2 = float(lat1), float(lon1), float(lat2), float(lon2)
+        R = 6371.0  # Earth's radius in km
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = (math.sin(dlat / 2)**2 +
+             math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
+             math.sin(dlon / 2)**2)
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        return R * c
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
 
 class BannerViewSet(viewsets.ModelViewSet):
     queryset = Banner.objects.filter(is_active=True)
@@ -40,26 +56,38 @@ class BannerViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(banner_type=banner_type)
         
         return queryset
-    
-import math
 
-def calculate_haversine(lat1, lon1, lat2, lon2):
-    """Calculate distance in kilometers between two GPS points"""
-    try:
-        lat1, lon1, lat2, lon2 = float(lat1), float(lon1), float(lat2), float(lon2)
-        R = 6371.0  # Earth's radius in km
-        dlat = math.radians(lat2 - lat1)
-        dlon = math.radians(lon2 - lon1)
-        a = (math.sin(dlat / 2)**2 +
-             math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
-             math.sin(dlon / 2)**2)
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-        return R * c
-    except (TypeError, ValueError, ZeroDivisionError):
-        return None
+    def get_default_fallback_banners(self, request, banner_type=None, limit=None):
+        """
+        When no location-specific banners match, return ALL active banners from the database
+        so every uploaded database banner image is shown by default.
+        """
+        now = timezone.now()
+        active_qs = Banner.objects.filter(is_active=True).filter(
+            Q(start_date__lte=now) | Q(start_date__isnull=True),
+            Q(end_date__gte=now) | Q(end_date__isnull=True)
+        ).order_by('-priority_weight', 'display_order', '-created_at')
+
+        if not active_qs.exists():
+            active_qs = Banner.objects.filter(is_active=True).order_by('-priority_weight', 'display_order', '-created_at')
+
+        if active_qs.exists():
+            # If a banner_type is requested, place matching banner_type first,
+            # followed by ALL other active database banners so all database banners are shown by default.
+            if banner_type:
+                typed = list(active_qs.filter(banner_type=banner_type))
+                others = list(active_qs.exclude(banner_type=banner_type))
+                all_banners = typed + others
+                return all_banners[:limit] if limit else all_banners
+            return list(active_qs[:limit] if limit else active_qs)
+
+        return []
 
     def get_location_based_banners(self, request_or_user=None, banner_type=None, limit=None):
-        """Get banners filtered by client location (area, pincode, km radius, city) and provider context"""
+        """
+        Get banners filtered by client location (area, pincode, km radius, city).
+        If no banner matches the client's location, returns ALL database banners by default.
+        """
         queryset = self.get_queryset()
         
         if banner_type:
@@ -105,10 +133,13 @@ def calculate_haversine(lat1, lon1, lat2, lon2):
                     client_state = provider_profile.business_state.lower()
                 if not client_pincode and provider_profile.business_pincode:
                     client_pincode = provider_profile.business_pincode.lower()
-            except:
+            except Exception:
                 pass
 
-        matched_banners = []
+        has_location_filter = bool(client_lat or client_lng or client_city or client_area or client_pincode)
+
+        location_matched = []
+        universal_banners = []
 
         for banner in queryset:
             # 1. Provider business type check (if browsing user is provider)
@@ -116,7 +147,7 @@ def calculate_haversine(lat1, lon1, lat2, lon2):
                 if not banner.matches_provider_business(provider_profile.business_type):
                     continue
 
-            # 2. Check if banner has NO location targeting at all -> Universal fallback
+            # 2. Check if banner has NO location targeting at all
             has_targeting = bool(
                 banner.target_city or 
                 banner.target_state or 
@@ -127,25 +158,22 @@ def calculate_haversine(lat1, lon1, lat2, lon2):
             )
 
             if not has_targeting:
-                # Universal banner: always eligible
                 score = 1 + (banner.priority_weight or 1)
-                matched_banners.append((score, banner))
+                universal_banners.append((score, banner))
                 continue
 
-            # 3. Banner has targeting -> must match area / radius / pincode / city
+            # 3. Banner has targeting -> check against client location
             match_score = 0
             is_matched = False
 
-            # A. GPS Coordinates & KM Radius Check (Highest precision)
+            # A. GPS Coordinates & KM Radius Check
             if client_lat and client_lng and banner.target_latitude is not None and banner.target_longitude is not None:
                 dist = calculate_haversine(client_lat, client_lng, banner.target_latitude, banner.target_longitude)
                 radius = float(banner.radius_km or 25.0)
                 if dist is not None and dist <= radius:
                     is_matched = True
-                    # Closer distance gets higher score bonus
                     match_score = max(match_score, 100 - min(dist, 50) + (banner.priority_weight * 5))
                 elif dist is not None and dist > radius:
-                    # Explicitly outside radius -> reject
                     continue
 
             # B. Pincode Match
@@ -153,8 +181,6 @@ def calculate_haversine(lat1, lon1, lat2, lon2):
                 if client_pincode == banner.target_pincode.strip().lower():
                     is_matched = True
                     match_score = max(match_score, 80 + (banner.priority_weight * 5))
-                elif not is_matched:
-                    pass
 
             # C. Area / Sector Match
             if client_area and banner.target_area:
@@ -162,8 +188,6 @@ def calculate_haversine(lat1, lon1, lat2, lon2):
                 if client_area in b_area or b_area in client_area:
                     is_matched = True
                     match_score = max(match_score, 70 + (banner.priority_weight * 5))
-                elif not is_matched:
-                    pass
 
             # D. City Match
             if client_city and banner.target_city:
@@ -173,7 +197,6 @@ def calculate_haversine(lat1, lon1, lat2, lon2):
                         is_matched = True
                         match_score = max(match_score, 40 + (banner.priority_weight * 5))
                 else:
-                    # Targeted to a different city -> reject
                     continue
 
             # E. State Match
@@ -184,17 +207,31 @@ def calculate_haversine(lat1, lon1, lat2, lon2):
                     match_score = max(match_score, 20 + (banner.priority_weight * 5))
 
             if is_matched:
-                matched_banners.append((match_score, banner))
+                location_matched.append((match_score, banner))
 
-        # Sort: Highest match score first, then priority_weight, then display_order, then newest
-        matched_banners.sort(key=lambda item: (
-            -item[0],
-            -(item[1].priority_weight or 1),
-            item[1].display_order,
-            -item[1].created_at.timestamp() if item[1].created_at else 0
-        ))
+        # USER REQUIREMENT:
+        # If there are NO banners matching the location (or no location specified),
+        # show ALL database banners by default!
+        if has_location_filter and location_matched:
+            # Sort location-matched banners first
+            location_matched.sort(key=lambda item: (
+                -item[0],
+                -(item[1].priority_weight or 1),
+                item[1].display_order,
+                -item[1].created_at.timestamp() if item[1].created_at else 0
+            ))
+            # Also include universal database banners after location-specific banners
+            universal_banners.sort(key=lambda item: (
+                -item[0],
+                -(item[1].priority_weight or 1),
+                item[1].display_order,
+                -item[1].created_at.timestamp() if item[1].created_at else 0
+            ))
+            result = [item[1] for item in location_matched] + [item[1] for item in universal_banners]
+        else:
+            # No banner according to location -> show ALL database banners by default!
+            result = self.get_default_fallback_banners(request, banner_type=banner_type)
 
-        result = [item[1] for item in matched_banners]
         if limit:
             result = result[:limit]
         return result
@@ -202,7 +239,9 @@ def calculate_haversine(lat1, lon1, lat2, lon2):
     def list(self, request, *args, **kwargs):
         """Get all banners for current user/client location context"""
         banners = self.get_location_based_banners(request)
-        
+        if not banners:
+            banners = self.get_default_fallback_banners(request)
+
         page = self.paginate_queryset(banners)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
@@ -213,15 +252,19 @@ def calculate_haversine(lat1, lon1, lat2, lon2):
     
     @action(detail=False, methods=['get'])
     def main_screen(self, request):
-        """Get main screen banners based on area, pincode, radius, and city context"""
-        banners = self.get_location_based_banners(request, banner_type='main_screen', limit=6)
+        """Get main screen banners. When no location banner matches, returns ALL database banners by default."""
+        banners = self.get_location_based_banners(request, banner_type='main_screen')
+        if not banners:
+            banners = self.get_default_fallback_banners(request)
         serializer = self.get_serializer(banners, many=True)
         return Response(serializer.data)
     
     @action(detail=False, methods=['get'])
     def offers(self, request):
-        """Get offer banners based on area, pincode, radius, and city context"""
-        banners = self.get_location_based_banners(request, banner_type='offer', limit=4)
+        """Get offer banners. When no location banner matches, returns ALL database banners by default."""
+        banners = self.get_location_based_banners(request, banner_type='offer')
+        if not banners:
+            banners = self.get_default_fallback_banners(request)
         serializer = self.get_serializer(banners, many=True)
         return Response(serializer.data)
     
@@ -251,11 +294,13 @@ def calculate_haversine(lat1, lon1, lat2, lon2):
                     banners.append(banner)
             
             banners.sort(key=lambda x: (-x.priority_weight, x.display_order))
+            if not banners:
+                banners = self.get_default_fallback_banners(request, limit=10)
             
             serializer = self.get_serializer(banners[:10], many=True)
             return Response(serializer.data)
             
-        except User.service_provider_profile.RelatedObjectDoesNotExist:
+        except Exception:
             return Response(
                 {'error': 'Provider profile not found'},
                 status=status.HTTP_404_NOT_FOUND
@@ -265,6 +310,8 @@ def calculate_haversine(lat1, lon1, lat2, lon2):
     def by_location(self, request):
         """Get banners for specific location"""
         banners = self.get_location_based_banners(request, limit=20)
+        if not banners:
+            return Response(self.get_synthetic_default_banner(request))
         serializer = self.get_serializer(banners, many=True)
         return Response(serializer.data)
 
